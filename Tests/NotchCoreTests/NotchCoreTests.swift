@@ -124,7 +124,8 @@ private func legacy(_ config: JSONValue) throws -> JSONValue {
 @Suite struct LegacyHookTests {
     static let configs: [(HookTarget, JSONValue)] = [
         (.claude, HookInstallerTests().foreign), (.codex, HookInstallerTests().foreign),
-        (.antigravity, AntigravityInstallerTests().foreign),
+        (.antigravity, AntigravityInstallerTests().foreign), (.qwen, HookInstallerTests().foreign),
+        (.commandcode, CommandCodeInstallerTests().foreign),
     ]
 
     @Test(arguments: configs) func reinstallReplacesNotchIslandHooks(target: HookTarget, foreign: JSONValue) throws {

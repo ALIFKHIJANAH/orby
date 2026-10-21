@@ -12,6 +12,22 @@ struct IntegrationStatus {
     var anyInstalled: Bool { statuses.values.contains(.installed) }
 }
 
+extension HookTarget {
+    /// What connecting this agent gets you, where it differs from Claude Code.
+    var setupNote: String? {
+        switch self {
+        case .opencode:
+            "Orby installed a plugin in OpenCode's plugins folder. Approvals and questions can be answered from the notch. Restart OpenCode to load it."
+        case .pi:
+            "Pi doesn't ask before running tools, so Orby shows its status only. Run /reload in Pi or restart it to load the extension."
+        case .commandcode:
+            "Status comes from hooks, approvals from an Orby mod. Mods are experimental in Command Code; while the notch shows a request, Command Code's own prompt waits for it."
+        case .claude, .codex, .antigravity, .qwen:
+            nil
+        }
+    }
+}
+
 enum BridgeSetup {
     /// The helper ships inside the app; hooks point at a stable copy so moving the app never breaks them.
     static var bundledBridge: URL? {
@@ -51,6 +67,10 @@ enum BridgeSetup {
         var results: [HookTarget: Result<URL?, Error>] = [:]
         for target in HookTarget.allCases where HookInstaller.status(target) != .agentMissing {
             results[target] = Result { try HookInstaller.apply(target, install: true) }
+        }
+        // The status line relay is opt-in: only reinstalled when its Settings toggle is on.
+        if Prefs.bool(PrefKey.antigravityStatusLine), StatusLineInstaller.status() == .notInstalled {
+            _ = try? StatusLineInstaller.apply(install: true)
         }
         return results
     }

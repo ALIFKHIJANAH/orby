@@ -33,15 +33,28 @@ enum Theme {
         case .claude: Color(red: 0.85, green: 0.47, blue: 0.34)
         case .codex: Color(red: 0.9, green: 0.9, blue: 0.95)
         case .antigravity: Color(red: 0.26, green: 0.52, blue: 0.96)
+        case .opencode: Color(red: 0.16, green: 0.74, blue: 0.68)
+        case .pi: Color(red: 0.93, green: 0.36, blue: 0.62)
+        case .commandcode: Color(red: 0.64, green: 0.86, blue: 0.30)
+        case .qwen: Color(red: 0.48, green: 0.40, blue: 0.96)
+        case .cursor: Color(red: 0.62, green: 0.66, blue: 0.74)
         case .unknown: Color.gray
         }
     }
+
+    /// Light brand colors get dark eyes and glyphs.
+    static func isLight(_ agent: AgentKind) -> Bool { [.codex, .commandcode, .cursor].contains(agent) }
 
     static func symbol(for agent: AgentKind) -> String {
         switch agent {
         case .claude: "asterisk"
         case .codex: "chevron.left.forwardslash.chevron.right"
         case .antigravity: "chevron.up"
+        case .opencode: "curlybraces"
+        case .pi: "function"
+        case .commandcode: "command"
+        case .qwen: "sparkle"
+        case .cursor: "cursorarrow"
         case .unknown: "cpu"
         }
     }
@@ -81,12 +94,57 @@ struct AgentBadge: View {
     var size: CGFloat = 16
 
     var body: some View {
-        Image(systemName: Theme.symbol(for: agent))
-            .font(.system(size: size * 0.62, weight: .bold))
-            .foregroundStyle(agent == .codex ? Color.black : Color.white)
+        AgentLogo(agent: agent, size: size * 0.62)
             .frame(width: size, height: size)
             .background(Theme.color(for: agent), in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
             .help(agent.displayName)
+    }
+}
+
+/// The agent's logo in a round chip, cut out of whatever sits behind it by a dark ring.
+struct AgentLogoBadge: View {
+    let agent: AgentKind
+    var size: CGFloat = 16
+
+    var body: some View {
+        AgentLogo(agent: agent, size: size * 0.6)
+            .frame(width: size, height: size)
+            .background(Theme.color(for: agent), in: Circle())
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.85), lineWidth: max(1.5, size * 0.09)).padding(-max(1.5, size * 0.09)))
+            .shadow(color: .black.opacity(0.35), radius: size * 0.12, y: size * 0.05)
+    }
+}
+
+/// The agent's brand mark, falling back to its SF Symbol when there is none.
+struct AgentLogo: View {
+    let agent: AgentKind
+    var size: CGFloat = 12
+
+    var body: some View {
+        let ink = Theme.isLight(agent) ? Color.black : Color.white
+        if let path = LogoShape.paths[agent] {
+            LogoShape(path: path).fill(ink, style: FillStyle(eoFill: true)).frame(width: size, height: size)
+        } else {
+            Image(systemName: Theme.symbol(for: agent))
+                .font(.system(size: size, weight: .bold))
+                .foregroundStyle(ink)
+        }
+    }
+}
+
+/// A logo path scaled to fit its frame, centred, keeping its aspect ratio.
+private struct LogoShape: Shape {
+    static let paths: [AgentKind: Path] = Dictionary(
+        uniqueKeysWithValues: AgentKind.allCases.compactMap { a in AgentLogos.pathData(for: a).map { (a, Path(SVGPath.parse($0))) } })
+
+    let path: Path
+
+    func path(in rect: CGRect) -> Path {
+        let box = path.boundingRect
+        guard box.width > 0, box.height > 0 else { return Path() }
+        let k = min(rect.width / box.width, rect.height / box.height)
+        let t = CGAffineTransform(translationX: rect.midX, y: rect.midY).scaledBy(x: k, y: k).translatedBy(x: -box.midX, y: -box.midY)
+        return path.applying(t)
     }
 }
 

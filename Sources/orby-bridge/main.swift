@@ -72,10 +72,12 @@ func finish(_ stdout: JSONValue? = nil) -> Never {
     exit(0)
 }
 
+if CommandLine.arguments.contains("--statusline") { runStatusLine() }
+
 // Run by hand in a terminal: don't hang waiting for stdin.
 if isatty(STDIN_FILENO) != 0 {
     FileHandle.standardError.write(
-        Data("orby-bridge: expects hook JSON on stdin (--source claude|codex|antigravity [--event name])\n".utf8))
+        Data("orby-bridge: expects hook JSON on stdin (--source claude|codex|antigravity|opencode|pi|commandcode|qwen [--event name], or --statusline --source antigravity [--wrap command])\n".utf8))
     exit(0)
 }
 

@@ -38,7 +38,9 @@ public struct BridgeEnvelope: Codable, Sendable {
 
     public var eventName: String { payload["hook_event_name"]?.string ?? payload["hookEventName"]?.string ?? "" }
     public var sessionID: String? {
-        payload["session_id"]?.string ?? payload["sessionId"]?.string ?? payload["conversationId"]?.string
+        // Cursor's payloads also carry a session_id, but only on session start and end.
+        payload["conversation_id"]?.string ?? payload["session_id"]?.string ?? payload["sessionId"]?.string
+            ?? payload["conversationId"]?.string
     }
 }
 

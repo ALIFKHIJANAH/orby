@@ -28,7 +28,7 @@ enum PreviewRenderer {
             ("expanded-question", 600, { m in working(m, repo); question(m, repo); m.expand(.attention) }),
             ("expanded-question-multi", 600, { m in working(m, repo); multiQuestion(m, repo); m.expand(.attention) }),
             ("expanded-plan", 700, { m in working(m, repo); plan(m, repo); m.expand(.attention) }),
-            ("expanded-usage", 480, { m in working(m, repo); sampleUsage(m); m.expand(.click); m.tab = .usage }),
+            ("expanded-usage", 680, { m in working(m, repo); sampleUsage(m); m.expand(.click); m.tab = .usage }),
         ]
         for (name, height, setup) in scenarios {
             let model = IslandModel()
@@ -46,6 +46,46 @@ enum PreviewRenderer {
             else { continue }
             try? png.write(to: dir.appendingPathComponent("\(name).png"))
             print("rendered \(name).png")
+        }
+        renderMascots(to: dir)
+    }
+
+    /// Every orb expression on one sheet, snapped a few times so the motion cycles show.
+    private static func renderMascots(to dir: URL) {
+        let poses: [(String, SessionPhase, ActivityKind?, Date?)] =
+            ActivityKind.allCases.map { ($0.rawValue, .working, $0, nil) } + [
+                ("thinking", .thinking, nil, nil), ("approval", .needsApproval, nil, nil), ("done", .done, nil, nil),
+                ("error", .error, nil, nil), ("compacting", .compacting, nil, nil), ("ready", .ready, nil, .now),
+                ("dozing", .ready, nil, .distantPast),
+            ]
+        let agents = AgentKind.allCases.filter { $0 != .unknown }
+        for frame in 1...3 {
+            let sheet = VStack(alignment: .leading, spacing: 18) {
+                ForEach(0..<3, id: \.self) { row in
+                    HStack(spacing: 22) {
+                        ForEach(Array(poses.enumerated()).filter { $0.offset % 3 == row }, id: \.offset) { i, pose in
+                            VStack(spacing: 8) {
+                                AgentMascot(
+                                    agent: agents[i % agents.count], phase: pose.1, size: 56, activity: pose.2, subagents: 2, idleSince: pose.3
+                                )
+                                .frame(width: 120, height: 120)
+                                Text(pose.0).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.8))
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(30)
+            .background(Color(white: 0.08))
+            let renderer = ImageRenderer(content: sheet)
+            renderer.scale = 2
+            if let tiff = renderer.nsImage?.tiffRepresentation,
+                let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+            {
+                try? png.write(to: dir.appendingPathComponent("mascots-\(frame).png"))
+                print("rendered mascots-\(frame).png")
+            }
+            Thread.sleep(forTimeInterval: 0.37)
         }
     }
 
@@ -183,11 +223,20 @@ enum PreviewRenderer {
 
     private static func sampleUsage(_ m: IslandModel) {
         var h = TokenHistory()
-        let amounts = [(4.1, 1.2), (6.3, 0.4), (2.2, 2.9), (8.8, 1.1), (5.0, 0.0), (3.4, 2.2), (7.2, 1.8)]
-        for (i, (c, x)) in amounts.enumerated() {
-            let day = TokenHistory.dayKey(Date().addingTimeInterval(Double(i - 6) * 86400))
-            h.add(day: day, agent: .claude, tokens: Int(c * 1_000_000))
-            h.add(day: day, agent: .codex, tokens: Int(x * 1_000_000))
+        // Millions of tokens per day, oldest first.
+        let amounts: [(AgentKind, [Double])] = [
+            (.claude, [4.1, 6.3, 2.2, 8.8, 5.0, 3.4, 7.2]),
+            (.codex, [1.2, 0.4, 2.9, 1.1, 0, 2.2, 1.8]),
+            (.opencode, [2.4, 0, 1.6, 0.9, 3.1, 0, 1.3]),
+            (.antigravity, [0, 0.8, 0.5, 0, 1.4, 0.6, 0.9]),
+            (.qwen, [0, 0, 0.3, 0.2, 0, 0.4, 0]),
+            (.pi, [0.2, 0, 0, 0.1, 0.3, 0, 0.2]),
+        ]
+        for (agent, perDay) in amounts {
+            for (i, m) in perDay.enumerated() where m > 0 {
+                let day = TokenHistory.dayKey(Date().addingTimeInterval(Double(i - 6) * 86400))
+                h.add(day: day, agent: agent, tokens: Int(m * 1_000_000))
+            }
         }
         let claude = RateLimits(provider: .claude, plan: nil, windows: [
             UsageWindow(label: "5h", used: 0.34, resetsAt: Date().addingTimeInterval(7_400)),
@@ -197,6 +246,13 @@ enum PreviewRenderer {
             UsageWindow(label: "5h", used: 0.08, resetsAt: Date().addingTimeInterval(12_000)),
             UsageWindow(label: "7d", used: 0.91, resetsAt: Date().addingTimeInterval(90_000)),
         ], fetchedAt: Date())
-        m.usage.loadPreview(history: h, claude: claude, codex: codex)
+        let seen = Date().addingTimeInterval(-180)
+        let antigravity = AntigravityQuota(buckets: [
+            "gemini-5h": .init(id: "gemini-5h", remaining: 0.97, resetsAt: Date().addingTimeInterval(3_900), observedAt: seen),
+            "gemini-weekly": .init(id: "gemini-weekly", remaining: 0.88, resetsAt: Date().addingTimeInterval(475_000), observedAt: seen),
+            "3p-5h": .init(id: "3p-5h", remaining: 1, resetsAt: Date().addingTimeInterval(17_000), observedAt: seen),
+            "3p-weekly": .init(id: "3p-weekly", remaining: 0.18, resetsAt: Date().addingTimeInterval(476_000), observedAt: seen),
+        ], plan: "Pro").rateLimits
+        m.usage.loadPreview(history: h, claude: claude, codex: codex, antigravity: antigravity)
     }
 }

@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for target in HookTarget.allCases where HookInstaller.status(target) == .notInstalled {
                 _ = try? HookInstaller.apply(target, install: true)
             }
+            // Only ever put back after the user turned it on in Settings.
+            if Prefs.bool(PrefKey.antigravityStatusLine), StatusLineInstaller.status() == .notInstalled {
+                _ = try? StatusLineInstaller.apply(install: true)
+            }
         }
 
         let model = self.model

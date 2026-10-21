@@ -4,36 +4,76 @@ import NotchShared
 
 /// Plan limits + local token history. Codex limits and all token counts come from local logs;
 /// Claude limits are opt-in and use the Claude Code sign-in already stored on this Mac.
+/// Antigravity limits come from agy's status line (relayed by the bridge) and, opt-in, `agy /usage`.
 @MainActor
 final class UsageService: ObservableObject {
     @Published private(set) var history = TokenHistory()
     @Published private(set) var codexLimits: RateLimits?
     @Published private(set) var claudeLimits: RateLimits?
     @Published private(set) var claudeError: String?
+    @Published private(set) var antigravityLimits: RateLimits?
+    @Published private(set) var antigravityError: String?
     @Published private(set) var isScanning = false
 
     private let index = IndexActor()
     private var timers: [Timer] = []
+    private var antigravityQuota = AntigravityQuota()
+    private var antigravityFetchedAt: Date?
+    private var antigravityFetching = false
 
-    var limits: [RateLimits] { [claudeLimits, codexLimits].compactMap { $0 } }
+    var limits: [RateLimits] { [claudeLimits, codexLimits, antigravityLimits].compactMap { $0 } }
 
     func start() {
         refreshLocal()
         refreshClaudeIfEnabled()
+        refreshAntigravityIfEnabled()
         timers = [
             Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
                 Task { @MainActor [weak self] in self?.refreshLocal() }
             },
             Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
-                Task { @MainActor [weak self] in self?.refreshClaudeIfEnabled() }
+                Task { @MainActor [weak self] in
+                    self?.refreshClaudeIfEnabled()
+                    self?.refreshAntigravityIfEnabled()
+                }
             },
         ]
     }
 
-    func loadPreview(history: TokenHistory, claude: RateLimits?, codex: RateLimits?) {
+    func loadPreview(history: TokenHistory, claude: RateLimits?, codex: RateLimits?, antigravity: RateLimits? = nil) {
         self.history = history
         claudeLimits = claude
         codexLimits = codex
+        antigravityLimits = antigravity
+    }
+
+    /// A status line relay or an `agy /usage` reading: newest value wins per bucket.
+    func update(antigravity quota: AntigravityQuota) {
+        antigravityQuota.merge(quota)
+        antigravityLimits = antigravityQuota.rateLimits
+    }
+
+    /// Runs `agy -p "/usage"` when the user opted in, at most once a minute (pane opens included).
+    func refreshAntigravityIfEnabled(force: Bool = false) {
+        guard Prefs.bool(PrefKey.antigravityUsageEnabled) else {
+            antigravityError = nil
+            return
+        }
+        guard !antigravityFetching else { return }
+        if !force, let last = antigravityFetchedAt, Date().timeIntervalSince(last) < 60 { return }
+        antigravityFetching = true
+        antigravityFetchedAt = Date()
+        Task {
+            let result = await Task.detached(priority: .utility) { AgyUsage.fetch() }.value
+            antigravityFetching = false
+            switch result {
+            case .success(let quota):
+                update(antigravity: quota)
+                antigravityError = nil
+            case .failure(let error):
+                antigravityError = error.localizedDescription
+            }
+        }
     }
 
     /// Codex rewrites limits on every turn; take fresher values from a live session's transcript.

@@ -165,6 +165,8 @@ private struct IntegrationSettings: View {
     @State private var bridgeInstalled = BridgeSetup.isInstalled
     @AppStorage(PrefKey.autoConfigureAgents) private var autoConfigure = false
     @AppStorage(PrefKey.antigravityAnswerFromNotch) private var answerAntigravity = true
+    @AppStorage(PrefKey.antigravityStatusLine) private var statusLineWanted = false
+    @State private var statusLine = StatusLineInstaller.status()
 
     var body: some View {
         Section {
@@ -174,9 +176,9 @@ private struct IntegrationSettings: View {
         } header: {
             Text("Agents")
         } footer: {
-            Text("Orby adds a small hook to each agent's own config. Other tools' hooks are left alone, and a backup is saved to ~/.orby/backups before every change. Restart running sessions afterwards.")
+            Text("Orby adds a small hook or plugin to each agent's own config. Other tools' hooks and plugins are left alone, and a backup is saved to ~/.orby/backups before every change. Restart running sessions afterwards.")
         }
-        ForEach([HookTarget.claude, .codex], id: \.self) { target in
+        ForEach([HookTarget.claude, .codex, .qwen], id: \.self) { target in
             let others = HookInstaller.foreignBlockingHooks(target)
             if status.statuses[target] == .installed, !others.isEmpty {
                 Section("Other apps answering \(target.agent.displayName) prompts") {
@@ -195,16 +197,38 @@ private struct IntegrationSettings: View {
                     .font(.callout)
             }
         }
-        if status.statuses[.antigravity] == .installed {
+        ForEach(HookTarget.allCases.filter { $0.setupNote != nil && status.statuses[$0] == .installed }, id: \.self) { target in
+            Section(target.agent.displayName) {
+                Label(target.setupNote ?? "", systemImage: "info.circle").font(.callout)
+            }
+        }
+        if status.statuses[.antigravity] == .installed || statusLine != .agentMissing {
             Section("Antigravity") {
-                Toggle("Answer Antigravity prompts from the notch", isOn: $answerAntigravity)
-                Text(
-                    answerAntigravity
-                        ? "Approve and Deny type the option into Antigravity's terminal, after checking its prompt is on screen there. Works in Orca, Terminal, iTerm2 and tmux; other terminals get “Go to terminal”."
-                        : "When Antigravity asks, the notch opens with the command and jumps you to its terminal (⌘Y)."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                if status.statuses[.antigravity] == .installed {
+                    Toggle("Answer Antigravity prompts from the notch", isOn: $answerAntigravity)
+                    Text(
+                        answerAntigravity
+                            ? "Approve and Deny type the option into Antigravity's terminal, after checking its prompt is on screen there. Works in Orca, Terminal, iTerm2 and tmux; other terminals get “Go to terminal”."
+                            : "When Antigravity asks, the notch opens with the command and jumps you to its terminal (⌘Y)."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                if statusLine != .agentMissing {
+                    Toggle(
+                        "Plan limits from the agy status line",
+                        isOn: Binding(get: { statusLine == .installed }, set: { setStatusLine($0) })
+                    )
+                    .disabled({ if case .unreadable = statusLine { return true } else { return false } }())
+                    if case .unreadable(let why) = statusLine {
+                        Text(why).font(.caption).foregroundStyle(.red)
+                    }
+                    Text(
+                        "agy hands its plan quota to its status line command on every update. Orby sets that command in ~/.gemini/antigravity-cli/settings.json to its bridge, which passes the quota to Orby on this Mac and prints your own status line if you had one, or a short one. Turning it off restores your previous status line. Restart agy to pick up the change."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
         }
         Section("Bridge") {
@@ -222,7 +246,9 @@ private struct IntegrationSettings: View {
     @ViewBuilder private func row(_ target: HookTarget) -> some View {
         let s = status.statuses[target] ?? .notInstalled
         HStack {
-            AgentBadge(agent: target.agent, size: 22)
+            AgentMascot(agent: target.agent, phase: s == .installed ? .done : .ready, size: 30)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.agent.displayName).font(.headline)
                 Text(target.configURL().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -256,6 +282,20 @@ private struct IntegrationSettings: View {
             message = error.localizedDescription
         }
         status = IntegrationStatus.current()
+    }
+
+    private func setStatusLine(_ on: Bool) {
+        if on { bridgeInstalled = BridgeSetup.installIfNeeded() }
+        do {
+            let backup = try StatusLineInstaller.apply(install: on)
+            statusLineWanted = on
+            message = (on ? "Antigravity's status line now reports plan limits to Orby." : "Restored Antigravity's previous status line.")
+                + (backup.map { " Backup: \($0.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))" } ?? "")
+                + " Restart agy to pick it up."
+        } catch {
+            message = error.localizedDescription
+        }
+        statusLine = StatusLineInstaller.status()
     }
 }
 
@@ -321,6 +361,7 @@ private struct UsageSettings: View {
     let usage: UsageService?
     @AppStorage(PrefKey.claudeUsageEnabled) private var claudeEnabled = false
     @AppStorage(PrefKey.showUsageInHeader) private var showInHeader = true
+    @AppStorage(PrefKey.antigravityUsageEnabled) private var antigravityEnabled = false
 
     var body: some View {
         Section {
@@ -332,16 +373,76 @@ private struct UsageSettings: View {
             Text("Reads the Claude Code sign-in already stored in your keychain and asks Anthropic for your 5-hour and weekly usage. macOS may ask you to allow keychain access. Nothing else leaves your Mac.")
         }
         Section {
+            Toggle("Fetch Antigravity quota (runs `agy /usage`)", isOn: $antigravityEnabled)
+                .onChange(of: antigravityEnabled) { _, _ in usage?.refreshAntigravityIfEnabled(force: true) }
+            LabeledContent(
+                "Status line relay", value: StatusLineInstaller.status() == .installed ? "On" : "Off (Settings → Integrations)")
+        } header: {
+            Text("Antigravity")
+        } footer: {
+            Text(
+                "Every 5 minutes, and when you open the Usage tab, Orby runs `agy -p \"/usage\" --output-format json`. agy answers it without starting a model turn, so it spends no quota and saves no conversation, but agy does ask Google for your quota using your own Antigravity sign-in. Needs agy 1.1.11 or later. The status line relay needs no network at all."
+            )
+        }
+        Section {
             LabeledContent("Codex limits", value: "Read from ~/.codex/sessions")
-            LabeledContent("Token history", value: "Read from local transcripts")
-            Toggle("Show the most-used window in the panel header", isOn: $showInHeader)
+            LabeledContent("Token history", value: "Read from local transcripts and databases")
+            Toggle("Show plan limits in the panel header", isOn: $showInHeader)
+            if showInHeader, let usage { HeaderLimitPicker(usage: usage) }
             Button("Refresh now") {
                 usage?.refreshLocal()
                 usage?.refreshClaudeIfEnabled()
+                usage?.refreshAntigravityIfEnabled(force: true)
             }
         } header: {
             Text("Local")
+        } footer: {
+            Text("Counts tokens for Claude Code, Codex, OpenCode, Antigravity, Qwen Code, Pi and Command Code from their files on this Mac, read-only. Cursor keeps no token counts locally, so it isn't listed.")
         }
+    }
+}
+
+/// Lets the user choose which limits sit in the panel header (up to three fit next to the tabs).
+private struct HeaderLimitPicker: View {
+    @ObservedObject var usage: UsageService
+    @AppStorage(PrefKey.pickHeaderLimits) private var pick = false
+    @AppStorage(PrefKey.headerLimits) private var stored = ""
+    static let maxPicked = 3
+
+    var body: some View {
+        Picker("Header shows", selection: $pick) {
+            Text("The 2 closest to running out").tag(false)
+            Text("Limits I pick").tag(true)
+        }
+        if pick {
+            let picked = Prefs.lines(stored)
+            ForEach(choices, id: \.id) { choice in
+                Toggle(isOn: binding(choice.id, picked)) {
+                    HStack(spacing: 6) {
+                        AgentBadge(agent: choice.agent, size: 14)
+                        Text("\(choice.agent.displayName) \(choice.label)")
+                    }
+                }
+                .disabled(!picked.contains(choice.id) && picked.count >= Self.maxPicked)
+            }
+            if choices.isEmpty { Text("No plan limits yet. Turn on a limit source above.").foregroundStyle(.secondary) }
+        }
+    }
+
+    /// Windows with data now, plus picked ones still waiting for data (so they can be unpicked).
+    private var choices: [(id: String, agent: AgentKind, label: String)] {
+        var out = usage.limits.flatMap { l in l.windows.map { (RateLimits.windowID(l.provider, $0.label), l.provider, $0.label) } }
+        for id in Prefs.lines(stored) where !out.contains(where: { $0.0 == id }) {
+            let parts = id.split(separator: "|", maxSplits: 1).map(String.init)
+            if parts.count == 2, let agent = AgentKind(rawValue: parts[0]) { out.append((id, agent, "\(parts[1]) (no data yet)")) }
+        }
+        return out.map { (id: $0.0, agent: $0.1, label: $0.2) }
+    }
+
+    private func binding(_ id: String, _ picked: [String]) -> Binding<Bool> {
+        Binding(
+            get: { picked.contains(id) },
+            set: { on in stored = (on ? picked + [id] : picked.filter { $0 != id }).joined(separator: "\n") })
     }
 }
 
@@ -358,6 +459,8 @@ private struct AboutSettings: View {
                 for t in HookTarget.allCases where HookInstaller.status(t) == .installed || HookInstaller.status(t) == .partial {
                     _ = try? HookInstaller.apply(t, install: false)
                 }
+                _ = try? StatusLineInstaller.apply(install: false)
+                Prefs.defaults.set(false, forKey: PrefKey.antigravityStatusLine)
             }
             Text("Run this before deleting the app. Hooks are guarded and do nothing if the bridge is missing.")
                 .font(.caption).foregroundStyle(.secondary)
