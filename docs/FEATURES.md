@@ -29,7 +29,7 @@ agent (claude, codex, …)
 
 | Feature | Vibe Island | AgentNotch | Orby |
 |---|---|---|---|
-| **Agents** | 30 (Claude Code, Codex, Gemini CLI, Cursor, OpenCode, Droid, Copilot, Kiro, Amp, Qwen, Kimi, DeepSeek, …) | ~12 (Claude Code, Codex, Cursor, Kimi, OpenCode, Cowork, Antigravity, Pi, LM Studio, Hermes, herdr) | ✅ Claude Code, ✅ Codex, ✅ Antigravity (hooks; status only for Antigravity) |
+| **Agents** | 30 (Claude Code, Codex, Gemini CLI, Cursor, OpenCode, Droid, Copilot, Kiro, Amp, Qwen, Kimi, DeepSeek, …) | ~12 (Claude Code, Codex, Cursor, Kimi, OpenCode, Cowork, Antigravity, Pi, LM Studio, Hermes, herdr) | ✅ Claude Code, ✅ Codex, ✅ Qwen Code (hooks), ✅ OpenCode 1.x (plugin), ✅ Command Code (hooks + mod), ✅ Pi (extension; status only), ✅ Antigravity (hooks; prompts answered by typing into its terminal), ✅ Cursor (via Claude hooks; status only) |
 | Notch panel; floating bar on non-notch / external displays | ✅ | ✅ | ✅ |
 | Non-activating overlay (never steals focus) | ✅ | ✅ | ✅ |
 | Hover / click to expand, auto-collapse on leave | ✅ | ✅ | ✅ |
@@ -50,9 +50,9 @@ agent (claude, codex, …)
 | Click to jump to exact tab/pane | ✅ iTerm2, Terminal, Ghostty, Warp, WezTerm, Kitty, tmux, Zellij, IDEs | ✅ Ghostty, iTerm2, Warp, VS Code, Conductor | ✅ iTerm2 (session), Terminal (tty), tmux (pane), Kitty, WezTerm, VS Code/Cursor/Windsurf/Zed (folder window); others: app activation |
 | Don't pop up when the agent's terminal is already focused | ✅ | — | ✅ |
 | Sounds per event | ✅ 8-bit + sound packs, quiet hours | ✅ 5 sounds, per-event | ✅ synthesized 8-bit, macOS sounds, custom folder; per-event toggles + preview |
-| Plan usage limits | ✅ Claude, Codex, Kimi, GLM, DeepSeek | ✅ Claude, Codex, Cursor, Kimi, OpenCode Go | ✅ Codex (local logs), ✅ Claude (opt-in, Claude Code sign-in) |
+| Plan usage limits | ✅ Claude, Codex, Kimi, GLM, DeepSeek | ✅ Claude, Codex, Cursor, Kimi, OpenCode Go | ✅ Codex (local logs), ✅ Claude (opt-in, Claude Code sign-in), ✅ Antigravity (opt-in: agy status line relay, or `agy -p /usage`) |
 | Usage alerts / pace / early-empty countdown | ✅ threshold alerts | ✅ pace tick, 85% line | ◐ 85% danger line, reset countdown |
-| Token history (day/7d/30d, per provider) | ✅ | ✅ | ✅ 7-day chart, per agent, incremental scan of local transcripts |
+| Token history (day/7d/30d, per provider) | ✅ | ✅ | ✅ 7-day chart stacked per agent (Claude, Codex, OpenCode, Antigravity, Qwen, Pi, Command Code); tail-only scan of JSONL, read-only SQLite |
 | Menu bar list of agents | — | ✅ | ✅ |
 | Zero-config setup | ✅ auto on first launch | ✅ | ◐ one-click Connect per agent (+ optional auto-configure); backups before every change |
 | Clean uninstall of hooks | ✅ | ? | ✅ |
@@ -73,9 +73,16 @@ agent (claude, codex, …)
 
 ## Roadmap (ordered by value)
 
-1. More agents: Antigravity approvals from the notch, Gemini CLI (settings.json hooks), Cursor CLI, OpenCode (plugin), Kiro, Copilot CLI.
+1. More agents (see [research/agent-integrations.md](research/agent-integrations.md)): Factory Droid, GitHub Copilot CLI, Gemini CLI (needs a JSONC-safe writer), Kimi Code CLI (TOML), OpenCode 2.x plugin API, Cursor's own `hooks.json`, Antigravity approvals via `PreToolUse` `auto_approve`.
 2. Session filters (hide by directory / first prompt) and a global switcher shortcut.
 3. Multi-display, appearance themes, reduce motion.
 4. Quiet hours / Focus-aware muting; usage threshold alerts.
+   Future opt-in plan limits (see [research/agent-usage.md](research/agent-usage.md)), each off by default behind its own toggle:
+   OpenCode Go (`opencode.ai/zen/go/v1/usage`, API key from OpenCode's `auth.json`), Command Code
+   (`api.commandcode.ai/alpha/...`, API key), Cursor (unofficial dashboard API, full session token).
+   Claude limits could also stay local through the same status line relay Antigravity uses
+   (`orby-bridge --statusline`, which wraps the user's own `statusLine` command).
+   Cursor keeps no token counts on disk and Gemini CLI has no Orby integration yet, so neither
+   has a token history.
 5. SSH remote: run the bridge on a server and forward the socket with `ssh -R`.
 6. Sparkle updates + Developer ID signing / notarization.

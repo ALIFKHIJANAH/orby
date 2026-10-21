@@ -53,8 +53,8 @@ private struct RequestHeader: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            AgentOrb(agent: session.agent, phase: session.phase, size: 24)
-                .frame(width: 28, height: 28)
+            AgentMascot(agent: session.agent, phase: session.phase, size: 28, activity: session.activity?.kind)
+                .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
@@ -258,7 +258,8 @@ private struct PermissionBody: View {
             guard let tool = r["toolName"]?.string else { return nil }
             return r["ruleContent"]?.string.map { "\(tool)(\($0))" } ?? tool
         }
-        if !rules.isEmpty { return "Always allow adds the rule \(rules.joined(separator: ", ")), so Claude won't ask again for it." }
+        let agent = model.session(for: request.sessionKey)?.agent.displayName ?? "the agent"
+        if !rules.isEmpty { return "Always allow adds the rule \(rules.joined(separator: ", ")), so \(agent) won't ask again for it." }
         if let mode = request.suggestions.first(where: { $0["type"]?.string == "setMode" })?["mode"]?.string {
             return mode == "acceptEdits"
                 ? "Always allow auto-accepts file edits for the rest of this session."

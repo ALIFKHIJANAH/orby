@@ -18,14 +18,14 @@ private struct UsageContent: View {
         VStack(alignment: .leading, spacing: 12) {
             section("Plan limits") {
                 if usage.limits.isEmpty {
-                    Text(claudeEnabled ? "Loading…" : "Codex limits appear after your next Codex turn. Turn on Claude limits in Settings → Usage.")
+                    Text(claudeEnabled ? "Loading…" : "Codex limits appear after your next Codex turn. Turn on Claude and Antigravity limits in Settings → Usage.")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.tertiaryText)
                 }
                 ForEach(usage.limits, id: \.provider) { limits in
                     ProviderLimits(limits: limits)
                 }
-                if let err = usage.claudeError {
+                ForEach([usage.claudeError, usage.antigravityError].compactMap { $0 }, id: \.self) { err in
                     Label(err, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.attention)
@@ -35,6 +35,7 @@ private struct UsageContent: View {
                 TokenChart(history: usage.history)
             }
         }
+        .onAppear { usage.refreshAntigravityIfEnabled() }
     }
 
     private func section<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
@@ -67,16 +68,20 @@ private struct ProviderLimits: View {
                     .foregroundStyle(Theme.tertiaryText)
             }
             ForEach(limits.windows, id: \.label) { w in
+                // Past its reset: the reading is old until the agent reports again.
+                let stale = w.isStale()
                 HStack(spacing: 8) {
-                    Text(w.label).font(.system(size: 11, weight: .medium)).frame(width: 64, alignment: .leading)
-                    ProgressBar(value: w.used)
-                    Text("\(Int(w.used * 100))%").font(.system(size: 11, weight: .semibold, design: .rounded)).frame(width: 36, alignment: .trailing)
-                    Text(w.resetsAt.map { "resets \(Self.relative($0))" } ?? "")
+                    Text(w.label).font(.system(size: 11, weight: .medium)).lineLimit(1).frame(width: 84, alignment: .leading)
+                    ProgressBar(value: w.used).opacity(stale ? 0.35 : 1)
+                    Text("\(Int((w.used * 100).rounded()))%").font(.system(size: 11, weight: .semibold, design: .rounded)).frame(width: 36, alignment: .trailing)
+                        .opacity(stale ? 0.5 : 1)
+                    Text(stale ? "already reset" : w.resetsAt.map { "resets \(Self.relative($0))" } ?? "")
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.tertiaryText)
                         .frame(width: 92, alignment: .trailing)
                 }
                 .foregroundStyle(Theme.secondaryText)
+                .help(stale ? "This window has reset since it was read; it updates on the agent's next report." : "")
             }
         }
     }
@@ -121,22 +126,35 @@ private struct TokenChart: View {
 
     var body: some View {
         let days = history.lastDays(7)
+        // Most tokens first: stacked at the bottom of each bar and leading the legend.
+        let totals = history.agentTotals(lastDays: 7)
+        let agents = totals.map(\.agent)
         let points = days.flatMap { day in
-            AgentKind.allCases.compactMap { agent -> Point? in
+            agents.compactMap { agent -> Point? in
                 guard let t = day.byAgent[agent], t > 0 else { return nil }
                 return Point(day: day.day, label: Self.weekday(day.day), agent: agent, tokens: t)
             }
         }
         let today = days.last.map { history.total(day: $0.day) } ?? 0
-        let week = days.reduce(0) { $0 + history.total(day: $1.day) }
+        let week = totals.reduce(0) { $0 + $1.tokens }
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 18) {
                 stat("Today", today)
                 stat("7 days", week)
-                ForEach(AgentKind.allCases.filter { $0 != .unknown }, id: \.self) { agent in
-                    let total = days.reduce(0) { $0 + ($1.byAgent[agent] ?? 0) }
-                    if total > 0 { stat(agent.displayName, total) }
+            }
+            if !totals.isEmpty {
+                FlowLayout(spacing: 12, lineSpacing: 4) {
+                    ForEach(totals, id: \.agent) { t in
+                        HStack(spacing: 5) {
+                            Circle().fill(Theme.color(for: t.agent)).frame(width: 7, height: 7)
+                            Text(t.agent.displayName).foregroundStyle(Theme.secondaryText)
+                            Text(t.tokens.compactTokens).fontWeight(.semibold).foregroundStyle(Theme.primaryText)
+                        }
+                        .font(.system(size: 11, design: .rounded))
+                        .lineLimit(1)
+                        .fixedSize()
+                    }
                 }
             }
             Chart(points) { p in
@@ -144,8 +162,7 @@ private struct TokenChart: View {
                     .foregroundStyle(by: .value("Agent", p.agent.displayName))
                     .cornerRadius(3)
             }
-            .chartForegroundStyleScale(
-                domain: AgentKind.allCases.map(\.displayName), range: AgentKind.allCases.map(Theme.color(for:)))
+            .chartForegroundStyleScale(domain: agents.map(\.displayName), range: agents.map(Theme.color(for:)))
             .chartXScale(domain: days.map { Self.weekday($0.day) })
             .chartYAxis {
                 AxisMarks { v in
@@ -162,9 +179,10 @@ private struct TokenChart: View {
             }
             .chartLegend(.hidden)
             .frame(height: 110)
-            Text("Counted from transcripts on this Mac, including cache reads.")
+            Text("Counted from transcripts and databases on this Mac, including cache reads. Cursor keeps no token counts locally.")
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -181,5 +199,39 @@ private struct TokenChart: View {
         guard let d = f.date(from: day) else { return day }
         f.dateFormat = "EEE"
         return f.string(from: d)
+    }
+}
+
+/// Left-aligned rows that wrap, so the legend stays readable however many agents report usage.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let frames = arrange(subviews, width: proposal.width ?? .infinity)
+        return CGSize(width: frames.map(\.maxX).max() ?? 0, height: frames.map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (view, frame) in zip(subviews, arrange(subviews, width: bounds.width)) {
+            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [CGRect] {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += lineHeight + lineSpacing
+                lineHeight = 0
+            }
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return frames
     }
 }

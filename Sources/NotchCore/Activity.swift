@@ -40,3 +40,49 @@ public struct Activity: Hashable, Sendable {
         return first.prefix(1).lowercased() + first.dropFirst() + rest
     }
 }
+
+/// The kind of work behind an activity, so the orb can act it out.
+public enum ActivityKind: String, CaseIterable, Sendable {
+    case read, edit, search, web, run, test, build, git, delete, delegate, plan
+
+    private static let verbs: [String: ActivityKind] = [
+        "Reading": .read, "Listing": .read, "Opening": .read, "Printing": .read, "Reviewing": .read, "Comparing": .read,
+        "Querying": .read,
+        "Editing": .edit, "Writing": .edit, "Changing": .edit, "Updating": .edit, "Creating": .edit, "Adding": .edit,
+        "Formatting": .edit, "Moving": .edit, "Copying": .edit, "Processing": .edit,
+        "Searching": .search, "Finding": .search, "Counting": .search, "Resolving": .search,
+        "Committing": .git, "Pushing": .git, "Pulling": .git, "Merging": .git, "Rebasing": .git, "Stashing": .git,
+        "Cloning": .git, "Staging": .git, "Switching": .git, "Restoring": .git, "Syncing": .git, "Tagging": .git,
+        "Cherry-picking": .git, "Fetching": .git,
+        "Deleting": .delete, "Removing": .delete, "Cleaning": .delete, "Tidying": .delete,
+        "Building": .build, "Installing": .build, "Deploying": .build, "Publishing": .build, "Packing": .build, "Linking": .build,
+        "Checking": .test, "Linting": .test, "Type-checking": .test,
+        "Delegating": .delegate,
+        "Asking": .plan, "Plan": .plan,
+    ]
+
+    public init(_ activity: Activity) {
+        let phrase = activity.progressive
+        let verb = phrase.split(separator: " ", maxSplits: 1).first.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ":")) } ?? ""
+        let lower = phrase.lowercased()
+        if activity.detail?.hasPrefix("http") == true || lower.hasPrefix("searching the web") {
+            self = .web
+        } else if lower.hasPrefix("updating the to-do") {
+            self = .plan
+        } else if lower.split(separator: " ").contains(where: { $0 == "git" || $0 == "branch" }) {
+            self = .git
+        } else if let kind = Self.verbs[verb] {
+            self = kind
+        } else if lower.contains("test") || lower.contains("lint") {
+            self = .test
+        } else if lower.contains("build") || lower.contains("compil") {
+            self = .build
+        } else {
+            self = .run
+        }
+    }
+}
+
+extension Activity {
+    public var kind: ActivityKind { ActivityKind(self) }
+}

@@ -76,6 +76,12 @@ final class IslandModel: ObservableObject {
     // MARK: Bridge events
 
     func receive(_ envelope: BridgeEnvelope, connection: BridgeConnection?) {
+        if envelope.eventName == AntigravityStatusLine.eventName {
+            if AgentKind(envelope: envelope) == .antigravity, let quota = AntigravityQuota.statusLine(envelope.payload) {
+                usage.update(antigravity: quota)
+            }
+            return
+        }
         let before = Set(engine.pending.map(\.id))
         let outcome = engine.handle(envelope)
         logNewExternalPrompts(since: before)

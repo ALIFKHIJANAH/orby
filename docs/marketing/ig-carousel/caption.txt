@@ -1,0 +1,12 @@
+Your MacBook notch has done nothing since 2021. We gave it a job.
+
+Orby is a Dynamic Island for your AI coding agents. It lives in the notch and shows what Claude Code, Codex, OpenCode, Antigravity and friends are doing: thinking, working, done, or waiting on you.
+
+→ Approve tool calls with ⌘Y without leaving your editor
+→ Answer agent questions and review plans from the notch
+→ See 5-hour and weekly limits before you hit them
+→ ~2 MB, native Swift, no account
+
+Swipe through, then grab it from the link in bio.
+
+#claudecode #aicoding #macos #devtools #buildinpublic #indiedev #codex #productivity

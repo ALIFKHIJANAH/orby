@@ -3,17 +3,26 @@ import NotchShared
 
 /// Adds/removes Orby's hook entries in an agent's hook config, leaving every
 /// other tool's hooks untouched. Writes a timestamped backup before any change.
+/// Agents without JSON hooks (OpenCode, Pi) get a plugin file instead; Command Code gets both.
 public enum HookTarget: String, CaseIterable, Sendable {
-    case claude, codex, antigravity
+    case claude, codex, antigravity, opencode, pi, commandcode, qwen
 
     public var agent: AgentKind {
         switch self {
         case .claude: .claude
         case .codex: .codex
         case .antigravity: .antigravity
+        case .opencode: .opencode
+        case .pi: .pi
+        case .commandcode: .commandcode
+        case .qwen: .qwen
         }
     }
 
+    /// False for agents Orby reaches only through a plugin file.
+    public var hasHookConfig: Bool { self != .opencode && self != .pi }
+
+    /// The hook config Orby edits, or the plugin file for plugin-only agents.
     public func configURL(home: URL = NotchPaths.homeDirectory) -> URL {
         switch self {
         case .claude:
@@ -26,15 +35,51 @@ public enum HookTarget: String, CaseIterable, Sendable {
         case .antigravity:
             // Global hooks shared by the Antigravity app, IDE and CLI.
             return home.appendingPathComponent(".gemini/config/hooks.json")
+        case .opencode, .pi:
+            return pluginURL(home: home)!
+        case .commandcode:
+            return home.appendingPathComponent(".commandcode/settings.json")
+        case .qwen:
+            return home.appendingPathComponent(".qwen/settings.json")
+        }
+    }
+
+    /// Source file Orby owns in the agent's plugin/extension/mod directory.
+    public func pluginURL(home: URL = NotchPaths.homeDirectory) -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        // Overrides only apply to the real home, so tests with a temp home stay put.
+        func override(_ key: String) -> URL? {
+            guard home == NotchPaths.homeDirectory, let dir = env[key], !dir.isEmpty else { return nil }
+            return URL(fileURLWithPath: dir, isDirectory: true)
+        }
+        switch self {
+        case .opencode:
+            let config = override("XDG_CONFIG_HOME") ?? home.appendingPathComponent(".config")
+            return config.appendingPathComponent("opencode/plugins/orby.js")
+        case .pi:
+            let agentDir = override("PI_CODING_AGENT_DIR") ?? home.appendingPathComponent(".pi/agent")
+            return agentDir.appendingPathComponent("extensions/orby.ts")
+        case .commandcode:
+            return home.appendingPathComponent(".commandcode/mods/orby.ts")
+        case .claude, .codex, .antigravity, .qwen:
+            return nil
         }
     }
 
     /// Directories whose existence means the agent is installed on this Mac.
     public func agentDirectories(home: URL = NotchPaths.homeDirectory) -> [URL] {
         switch self {
-        case .claude, .codex: [configURL(home: home).deletingLastPathComponent()]
+        case .claude, .codex, .commandcode, .qwen: [configURL(home: home).deletingLastPathComponent()]
         case .antigravity:
             ["antigravity", "antigravity-ide", "antigravity-cli"].map { home.appendingPathComponent(".gemini/\($0)") }
+        case .opencode:
+            // Config dir, the curl installer's bin dir, or the data dir.
+            [
+                pluginURL(home: home)!.deletingLastPathComponent().deletingLastPathComponent(),
+                home.appendingPathComponent(".opencode"), home.appendingPathComponent(".local/share/opencode"),
+            ]
+        case .pi:
+            [pluginURL(home: home)!.deletingLastPathComponent().deletingLastPathComponent()]
         }
     }
 
@@ -53,13 +98,29 @@ public enum HookTarget: String, CaseIterable, Sendable {
             ]
         case .antigravity:
             ["SessionStart", "PreInvocation", "PreToolUse", "PostToolUse", "Stop"]
+        case .qwen:
+            [
+                "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
+                "PermissionRequest", "Notification", "Stop", "StopFailure", "SubagentStart", "SubagentStop",
+                "PreCompact", "PostCompact",
+            ]
+        case .commandcode:
+            // The only hook events it has; prompts, approvals and exit come through the mod.
+            ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]
+        case .opencode, .pi:
+            []
         }
     }
 
     /// Seconds the agent waits for the hook. Permission requests block until the user decides.
     public func timeout(for event: String) -> Int {
         guard blockingEvents.contains(event) else { return 10 }
-        return self == .claude ? 86400 : 7200
+        switch self {
+        case .claude: return 86400
+        // Qwen reads any timeout of 1000 or more as milliseconds.
+        case .qwen: return 600
+        default: return 7200
+        }
     }
 }
 
@@ -98,7 +159,7 @@ public enum HookInstaller {
     }
 
     public static func hasLegacy(_ target: HookTarget, home: URL = NotchPaths.homeDirectory) -> Bool {
-        guard let data = try? Data(contentsOf: target.configURL(home: home)), let root = try? JSONValue.decode(data) else { return false }
+        guard target.hasHookConfig, let data = try? Data(contentsOf: target.configURL(home: home)), let root = try? JSONValue.decode(data) else { return false }
         return hasLegacy(in: root)
     }
 
@@ -204,50 +265,89 @@ public enum HookInstaller {
     }
 
     public static func status(_ target: HookTarget, home: URL = NotchPaths.homeDirectory) -> Status {
-        let url = target.configURL(home: home)
         guard target.agentDirectories(home: home).contains(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
             return .agentMissing
         }
-        guard let data = try? Data(contentsOf: url) else { return .notInstalled }
-        guard let root = try? JSONValue.decode(data) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
-        if isInstalled(target, in: root) { return .installed }
-        return ourEvents(target, in: root).isEmpty ? .notInstalled : .partial
+        // Each part Orby writes (hook config, plugin file) is either fully there, missing or partial.
+        var parts: [Status] = []
+        if target.hasHookConfig {
+            let url = target.configURL(home: home)
+            if let data = try? Data(contentsOf: url) {
+                guard let root = try? JSONValue.decode(data) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
+                parts.append(isInstalled(target, in: root) ? .installed : ourEvents(target, in: root).isEmpty ? .notInstalled : .partial)
+            } else {
+                parts.append(.notInstalled)
+            }
+        }
+        if let url = target.pluginURL(home: home) {
+            switch PluginInstaller.state(target, home: home) {
+            case .current: parts.append(.installed)
+            case .missing: parts.append(.notInstalled)
+            // Written by an older Orby: Repair rewrites it.
+            case .outdated: parts.append(.partial)
+            case .foreign: return .unreadable("\(url.lastPathComponent) belongs to another tool")
+            }
+        }
+        if parts.allSatisfy({ $0 == .installed }) { return .installed }
+        return parts.allSatisfy({ $0 == .notInstalled }) ? .notInstalled : .partial
     }
 
     public enum InstallError: LocalizedError {
         case invalidJSON(URL)
+        case foreignPlugin(URL)
         public var errorDescription: String? {
             switch self {
             case .invalidJSON(let url): "\(url.path) isn’t valid JSON, so it was left untouched."
+            case .foreignPlugin(let url): "\(url.path) wasn’t written by Orby, so it was left untouched."
             }
         }
     }
 
-    /// Install (or remove) hooks on disk. Returns the backup path, if a file existed.
+    /// Install (or remove) hooks and plugin files on disk. Returns a backup path, if a file was changed.
     @discardableResult
     public static func apply(
         _ target: HookTarget, install: Bool, home: URL = NotchPaths.homeDirectory,
         backupDir: URL = NotchPaths.backups, now: Date = Date()
     ) throws -> URL? {
+        // Check the plugin slot first so a refusal leaves the hook config untouched too.
+        if target.pluginURL(home: home) != nil, PluginInstaller.state(target, home: home) == .foreign {
+            throw InstallError.foreignPlugin(target.pluginURL(home: home)!)
+        }
+        var backup: URL?
+        if target.hasHookConfig {
+            backup = try applyHooks(target, install: install, home: home, backupDir: backupDir, now: now)
+        }
+        if target.pluginURL(home: home) != nil {
+            let pluginBackup = try PluginInstaller.apply(target, install: install, home: home, backupDir: backupDir, now: now)
+            backup = backup ?? pluginBackup
+        }
+        return backup
+    }
+
+    static func backup(_ data: Data, of url: URL, for target: HookTarget, in backupDir: URL, now: Date) throws -> URL {
+        try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: now).replacingOccurrences(of: ":", with: "-")
+        let b = backupDir.appendingPathComponent("\(target.rawValue)-\(url.lastPathComponent).\(stamp)")
+        try data.write(to: b)
+        return b
+    }
+
+    private static func applyHooks(_ target: HookTarget, install: Bool, home: URL, backupDir: URL, now: Date) throws -> URL? {
         let fm = FileManager.default
         // Write through symlinks (dotfile repos) instead of replacing the link with a file.
         let url = target.configURL(home: home).resolvingSymlinksInPath()
         var root: JSONValue = .object([:])
-        var backup: URL?
+        var saved: URL?
         if let data = try? Data(contentsOf: url) {
             guard let parsed = try? JSONValue.decode(data) else { throw InstallError.invalidJSON(url) }
             root = parsed
-            try fm.createDirectory(at: backupDir, withIntermediateDirectories: true)
-            let stamp = ISO8601DateFormatter().string(from: now).replacingOccurrences(of: ":", with: "-")
-            let b = backupDir.appendingPathComponent("\(target.rawValue)-\(url.lastPathComponent).\(stamp)")
-            try data.write(to: b)
-            backup = b
+            saved = try backup(data, of: url, for: target, in: backupDir, now: now)
         } else if !install {
             return nil
         }
         let updated = install ? installing(target, into: root) : uninstalling(from: root)
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try updated.encoded(pretty: true).write(to: url, options: .atomic)
-        return backup
+        return saved
     }
 }

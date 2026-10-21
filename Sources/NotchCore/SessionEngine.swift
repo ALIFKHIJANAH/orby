@@ -34,9 +34,16 @@ public struct SessionEngine: Sendable {
 
     public mutating func handle(_ env: BridgeEnvelope, now: Date = Date()) -> Outcome {
         var out = Outcome()
-        guard let sid = env.sessionID else { return out }
-        let agent = AgentKind(source: env.source)
-        let p = agent == .antigravity ? AntigravityPayload.normalized(env.payload) : env.payload
+        // Status line relays carry quota, not session events.
+        guard env.eventName != AntigravityStatusLine.eventName, let sid = env.sessionID else { return out }
+        let agent = AgentKind(envelope: env)
+        let p: JSONValue =
+            switch agent {
+            case .antigravity: AntigravityPayload.normalized(env.payload)
+            case .claude, .codex, .unknown: env.payload
+            case .opencode, .pi, .commandcode, .qwen: ToolAliases.normalized(env.payload)
+            case .cursor: CursorPayload.normalized(env.payload)
+            }
         let key = Self.sessionKey(source: agent.rawValue, sessionID: sid)
         out.sessionKey = key
         let event = p["hook_event_name"]?.string ?? env.eventName

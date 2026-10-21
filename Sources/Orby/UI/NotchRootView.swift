@@ -275,10 +275,14 @@ struct HeaderView: View {
 
 private struct HeaderUsageChips: View {
     @ObservedObject var usage: UsageService
+    @AppStorage(PrefKey.pickHeaderLimits) private var pick = false
+    @AppStorage(PrefKey.headerLimits) private var picked = ""
 
     var body: some View {
-        ForEach(usage.limits, id: \.provider) { limits in
-            if let w = limits.mostPressured { UsageChip(agent: limits.provider, window: w) }
+        // Picking nothing shows nothing, rather than silently falling back to the automatic pair.
+        let shown = pick ? (picked.isEmpty ? [] : RateLimits.headerWindows(usage.limits, picked: Prefs.lines(picked))) : RateLimits.headerWindows(usage.limits)
+        ForEach(shown, id: \.id) { item in
+            UsageChip(agent: item.agent, window: item.window)
         }
     }
 }
@@ -290,14 +294,14 @@ struct UsageChip: View {
     var body: some View {
         HStack(spacing: 4) {
             AgentBadge(agent: agent, size: 12)
-            Text("\(window.label) \(Int(window.used * 100))%")
+            Text("\(window.label) \(Int((window.used * 100).rounded()))%")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(window.used > 0.85 ? Theme.error : Theme.secondaryText)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(Theme.card, in: Capsule())
-        .help("\(agent.displayName) \(window.label) window: \(Int(window.used * 100))% used")
+        .help("\(agent.displayName) \(window.label) window: \(Int((window.used * 100).rounded()))% used")
     }
 }
 

@@ -23,9 +23,17 @@ enum PrefKey {
     static let customSoundFolder = "customSoundFolder"
     static let claudeUsageEnabled = "claudeUsageEnabled"
     static let showUsageInHeader = "showUsageInHeader"
+    /// Header shows the limits the user picked instead of the two closest to running out.
+    static let pickHeaderLimits = "pickHeaderLimits"
+    /// Picked header limits, one `RateLimits.windowID` per line, in display order.
+    static let headerLimits = "headerLimits"
     static let didOnboard = "didOnboard"
     static let autoConfigureAgents = "autoConfigureAgents"
     static let antigravityAnswerFromNotch = "antigravityAnswerFromNotch"
+    /// Relay agy's status line (plan quota) to Orby. Also lets auto-configure reinstall it.
+    static let antigravityStatusLine = "antigravityStatusLine"
+    /// Run `agy -p "/usage"` every few minutes (agy then asks Google with the user's login).
+    static let antigravityUsageEnabled = "antigravityUsageEnabled"
     static func soundEnabled(_ cue: SoundCue) -> String { "sound.\(cue.rawValue)" }
 }
 
@@ -72,15 +80,20 @@ enum Prefs {
             PrefKey.soundVolume: 0.5,
             PrefKey.claudeUsageEnabled: false,
             PrefKey.showUsageInHeader: true,
+            PrefKey.pickHeaderLimits: false,
+            PrefKey.headerLimits: "",
             PrefKey.didOnboard: false,
             PrefKey.autoConfigureAgents: false,
             PrefKey.antigravityAnswerFromNotch: true,
+            PrefKey.antigravityStatusLine: false,
+            PrefKey.antigravityUsageEnabled: false,
         ]
         for cue in SoundCue.allCases { values[PrefKey.soundEnabled(cue)] = cue != .start }
         defaults.register(defaults: values)
     }
 
     static func bool(_ key: String) -> Bool { defaults.bool(forKey: key) }
+    static func lines(_ stored: String) -> [String] { stored.split(separator: "\n").map(String.init) }
     static func double(_ key: String) -> Double { defaults.double(forKey: key) }
     static var soundTheme: SoundTheme { SoundTheme(rawValue: defaults.string(forKey: PrefKey.soundTheme) ?? "") ?? .chiptune }
     static var display: DisplayChoice { DisplayChoice(rawValue: defaults.string(forKey: PrefKey.display) ?? "") ?? .auto }

@@ -106,13 +106,16 @@ struct SessionRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 16) {
             ZStack(alignment: .bottomTrailing) {
-                AgentBadge(agent: session.agent, size: 22)
+                AgentMascot(
+                    agent: session.agent, phase: session.phase, size: 30, activity: session.activity?.kind,
+                    subagents: session.activeSubagents, idleSince: session.updatedAt)
                 StatusDot(phase: session.phase, size: 8)
                     .overlay(Circle().stroke(Color.black, lineWidth: 1.5))
                     .offset(x: 3, y: 3)
             }
+            .padding(.leading, 4)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(session.title ?? session.projectName)

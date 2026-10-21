@@ -2,15 +2,25 @@ import Foundation
 import NotchShared
 
 public enum AgentKind: String, Codable, CaseIterable, Sendable {
-    case claude, codex, antigravity, unknown
+    case claude, codex, antigravity, opencode, pi, commandcode, qwen, cursor, unknown
 
     public init(source: String) { self = AgentKind(rawValue: source) ?? .unknown }
+
+    /// Cursor runs the hooks in ~/.claude/settings.json too, so some "claude" envelopes are Cursor's.
+    public init(envelope: BridgeEnvelope) {
+        self = envelope.source == "claude" && envelope.payload["cursor_version"] != nil ? .cursor : AgentKind(source: envelope.source)
+    }
 
     public var displayName: String {
         switch self {
         case .claude: "Claude Code"
         case .codex: "Codex"
         case .antigravity: "Antigravity"
+        case .opencode: "OpenCode"
+        case .pi: "Pi"
+        case .commandcode: "Command Code"
+        case .qwen: "Qwen Code"
+        case .cursor: "Cursor"
         case .unknown: "Agent"
         }
     }
