@@ -55,6 +55,7 @@ Requires macOS 14+ and Xcode 16+ (Swift 6 toolchain).
 
 ```bash
 scripts/build-app.sh --open     # builds build/Orby.app and launches it
+scripts/make-dmg.sh 0.1.0       # packs it into build/release/Orby-0.1.0.dmg
 swift test                      # unit + bridge↔socket end-to-end tests
 ```
 
