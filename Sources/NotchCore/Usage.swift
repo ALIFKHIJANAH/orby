@@ -178,7 +178,7 @@ public enum UsageScanner {
     /// One Claude transcript line. Claude repeats `usage` on every content block of a message and
     /// `output_tokens` grows while streaming, so the line with the most output wins.
     public static func claudeUsage<S: StringProtocol>(line: S) -> UsageRecord? {
-        guard line.contains("\"usage\""), let obj = try? JSONValue.decode(Data(line.utf8)),
+        guard line.containsBytes("\"usage\""), let obj = try? JSONValue.decode(Data(line.utf8)),
             obj["type"]?.string == "assistant", let message = obj["message"], let usage = message["usage"],
             let ts = obj["timestamp"]?.string, let date = parseDate(ts)
         else { return nil }
@@ -191,7 +191,7 @@ public enum UsageScanner {
     /// One Codex rollout line → per-turn tokens from `last_token_usage`, plus the running
     /// `total_token_usage` so callers can drop repeated events.
     public static func codexUsage<S: StringProtocol>(line: S) -> (date: Date, tokens: Int, total: Int?, limits: RateLimits?)? {
-        guard line.contains("\"token_count\""), let obj = try? JSONValue.decode(Data(line.utf8)),
+        guard line.containsBytes("\"token_count\""), let obj = try? JSONValue.decode(Data(line.utf8)),
             let payload = obj["payload"], payload["type"]?.string == "token_count",
             let ts = obj["timestamp"]?.string, let date = parseDate(ts)
         else { return nil }
@@ -203,7 +203,7 @@ public enum UsageScanner {
 
     /// Qwen Code chat record: genai `usageMetadata` on assistant records (prompt count includes cache).
     public static func qwenUsage<S: StringProtocol>(line: S) -> UsageRecord? {
-        guard line.contains("\"usageMetadata\""), let obj = try? JSONValue.decode(Data(line.utf8)),
+        guard line.containsBytes("\"usageMetadata\""), let obj = try? JSONValue.decode(Data(line.utf8)),
             obj["type"]?.string == "assistant", let usage = obj["usageMetadata"], let date = date(obj["timestamp"])
         else { return nil }
         let tokens = usage["totalTokenCount"]?.int ?? sum(usage, ["promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount"])
@@ -214,7 +214,7 @@ public enum UsageScanner {
     /// Pi session entry: `message.usage` on assistant messages, or entry-level `usage` (cache warming,
     /// compaction). Forks copy entries with their ids, so the id dedupes across files.
     public static func piUsage<S: StringProtocol>(line: S) -> UsageRecord? {
-        guard line.contains("\"usage\""), let obj = try? JSONValue.decode(Data(line.utf8)), obj["type"]?.string != "session",
+        guard line.containsBytes("\"usage\""), let obj = try? JSONValue.decode(Data(line.utf8)), obj["type"]?.string != "session",
             let usage = obj["message"]?["usage"] ?? obj["usage"],
             let date = date(obj["timestamp"]) ?? date(obj["message"]?["timestamp"])
         else { return nil }
@@ -225,7 +225,7 @@ public enum UsageScanner {
 
     /// Command Code session entry: entry-level `usage` on assistant messages, disjoint buckets.
     public static func commandCodeUsage<S: StringProtocol>(line: S) -> UsageRecord? {
-        guard line.contains("\"usage\""), let obj = try? JSONValue.decode(Data(line.utf8)),
+        guard line.containsBytes("\"usage\""), let obj = try? JSONValue.decode(Data(line.utf8)),
             obj["type"]?.string == "message", let usage = obj["usage"], let date = date(obj["timestamp"])
         else { return nil }
         let tokens = sum(usage, ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens"])
@@ -307,13 +307,24 @@ public enum UsageScanner {
         guard (try? h.seek(toOffset: UInt64(offset))) != nil else { return offset }
         var end = offset
         var pending = Data()
-        while let data = try? h.read(upToCount: chunkSize), !data.isEmpty {
-            pending.append(data)
-            guard let lastNewline = pending.lastIndex(of: UInt8(ascii: "\n")) else { continue }
-            let complete = pending[pending.startIndex...lastNewline]
-            body(String(decoding: complete, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true))
-            end += complete.count
-            pending = Data(pending[(lastNewline + 1)...])
+        var atEnd = false
+        while !atEnd {
+            // FileHandle's chunks and the parsers' Foundation objects are autoreleased; without a
+            // pool per chunk they would all live until the scan ends (the whole folder, ~0.5 GB).
+            autoreleasepool {
+                guard let data = try? h.read(upToCount: chunkSize), !data.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                pending.append(data)
+                guard let lastNewline = pending.lastIndex(of: UInt8(ascii: "\n")) else { return }
+                let complete = pending[pending.startIndex...lastNewline]
+                // Split on the byte: splitting on Characters runs grapheme breaking over MBs of text.
+                let text = String(decoding: complete, as: UTF8.self)
+                body(text.utf8.split(separator: UInt8(ascii: "\n")).map { Substring($0) })
+                end += complete.count
+                pending = Data(pending[(lastNewline + 1)...])
+            }
         }
         return end
     }
@@ -420,5 +431,20 @@ public final class UsageIndex {
             }
         }
         state.offset = end
+    }
+}
+
+extension StringProtocol {
+    /// Plain byte search. `contains` on strings is a generic, Character-aware scan: over a folder
+    /// of transcripts it took seconds where this takes milliseconds. Meant for ASCII needles.
+    func containsBytes(_ needle: String) -> Bool {
+        var needle = needle
+        return needle.withUTF8 { n in
+            func search(_ h: UnsafeBufferPointer<UInt8>) -> Bool {
+                h.count >= n.count && memmem(h.baseAddress, h.count, n.baseAddress, n.count) != nil
+            }
+            // Bridged strings have no contiguous UTF-8; search a copy of their bytes.
+            return utf8.withContiguousStorageIfAvailable(search) ?? Array(utf8).withUnsafeBufferPointer(search)
+        }
     }
 }

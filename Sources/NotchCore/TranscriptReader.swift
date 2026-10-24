@@ -44,7 +44,7 @@ public enum TranscriptReader {
         var branchSeen = false
         for line in lines.reversed() {
             // Only user and assistant lines matter; skip the rest (progress, snapshots) undecoded.
-            guard line.contains("\"assistant\"") || line.contains("\"user\""), let obj = try? JSONValue.decode(Data(line.utf8))
+            guard line.containsBytes("\"assistant\"") || line.containsBytes("\"user\""), let obj = try? JSONValue.decode(Data(line.utf8))
             else { continue }
             if !branchSeen, let b = obj["gitBranch"]?.string {
                 branchSeen = true

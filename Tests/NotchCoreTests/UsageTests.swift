@@ -161,6 +161,16 @@ private func antigravityStep(created: Date, input: UInt64, output: UInt64, cache
 }
 
 @Suite struct UsageIndexTests {
+    @Test func byteSearchMatchesContains() {
+        let line = #"{"type":"assistant","message":{"usage":{"input_tokens":1}}} é"#
+        #expect(line.containsBytes("\"usage\""))
+        #expect(line[...].containsBytes("\"assistant\""))
+        #expect(!line.containsBytes("\"token_count\""))
+        #expect(!"".containsBytes("\"usage\""))
+        // A bridged NSString has no contiguous UTF-8 storage.
+        #expect((NSString(string: line) as String).containsBytes("\"usage\""))
+    }
+
     @Test func linesStreamAcrossChunksAndLeaveThePartialLine() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("lines-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
