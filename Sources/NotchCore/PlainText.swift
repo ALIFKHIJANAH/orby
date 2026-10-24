@@ -10,7 +10,7 @@ public enum PlainText {
 
     /// Leading sentences that fit in `max` characters; a single long sentence is cut at a word.
     public static func summary(_ markdown: String, max: Int) -> String {
-        let sentences = split(join(lines(markdown)))
+        let sentences = split(join(lines(markdown, enough: max)))
         guard let first = sentences.first else { return "" }
         var out = first
         for s in sentences.dropFirst() {
@@ -33,7 +33,7 @@ public enum PlainText {
 
     /// First meaningful line without added punctuation, e.g. a plan's title.
     public static func title(_ markdown: String, max: Int) -> String {
-        truncate(lines(markdown).first ?? "", max: max)
+        truncate(lines(markdown, enough: 0).first ?? "", max: max)
     }
 
     /// Cut at a word boundary and add "…" when longer than `max`.
@@ -49,6 +49,8 @@ public enum PlainText {
 
     /// Strips bold/italic/code/link syntax, keeping the visible text.
     public static func inline(_ s: String) -> String {
+        // The Markdown parser is costly and most lines carry no inline syntax at all.
+        guard s.contains(where: { "*_`[]<>\\~&!".contains($0) }) else { return s }
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         if let attributed = try? AttributedString(markdown: s, options: options) {
             return String(attributed.characters)
@@ -56,10 +58,14 @@ public enum PlainText {
         return s.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
     }
 
-    /// Readable lines: no fences, tables, rules, block markers or filler headings.
-    static func lines(_ markdown: String) -> [String] {
+    /// Readable lines: no fences, tables, rules, block markers or filler headings. With `enough`,
+    /// stops one line after the text passes that many characters: callers that keep only the
+    /// leading `enough` characters never reach further, and the extra line keeps the punctuation
+    /// `join` gives the last line the same as with the full text.
+    static func lines(_ markdown: String, enough: Int = .max) -> [String] {
         var result: [String] = []
         var inFence = false
+        var length = 0
         for raw in markdown.components(separatedBy: .newlines) {
             var line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("```") || line.hasPrefix("~~~") {
@@ -80,6 +86,8 @@ public enum PlainText {
             let bare = line.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ":. "))
             if (isHeading || line.hasSuffix(":")) && filler.contains(bare) { continue }
             result.append(line)
+            if length > enough { break }
+            length += line.count + 1
         }
         return result
     }

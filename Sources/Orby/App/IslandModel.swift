@@ -49,6 +49,7 @@ final class IslandModel: ObservableObject {
     private var engine = SessionEngine()
     private var connections: [String: BridgeConnection] = [:]
     private var lastTranscriptRead: [String: Date] = [:]
+    private var transcripts: [String: TranscriptRead] = [:]
     private var collapseWork: DispatchWorkItem?
     private var pruneTimer: Timer?
     private var thinkingTimer: Timer?
@@ -285,7 +286,10 @@ final class IslandModel: ObservableObject {
         let ttl = Prefs.double(PrefKey.finishedSessionTTLMinutes) * 60
         let before = engine.sessions.count
         release(engine.prune(doneTTL: ttl, isAlive: ProcessTree.isAlive), reason: "pruned")
-        if engine.sessions.count != before { publish() }
+        guard engine.sessions.count != before else { return }
+        lastTranscriptRead = lastTranscriptRead.filter { engine.sessions[$0.key] != nil }
+        transcripts = transcripts.filter { engine.sessions[$0.key] != nil }
+        publish()
     }
 
     private func refreshTranscript(_ key: String, force: Bool) {
@@ -294,10 +298,20 @@ final class IslandModel: ObservableObject {
         if !force, let last = lastTranscriptRead[key], now.timeIntervalSince(last) < 5 { return }
         lastTranscriptRead[key] = now
         let agent = s.agent
+        let cached = transcripts[key]
         Task.detached(priority: .utility) {
-            let info = TranscriptReader.read(path: path, agent: agent)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+            let size = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+            let mtime = attributes?[.modificationDate] as? Date ?? .distantPast
+            // Nothing appended since the last read: reuse it instead of parsing the tail again.
+            let info = cached.flatMap { $0.size == size && $0.mtime == mtime ? $0.info : nil }
+                ?? TranscriptReader.read(path: path, agent: agent)
             await MainActor.run { [weak self] in
-                guard let self else { return }
+                guard let self, let phase = self.engine.sessions[key]?.phase else { return }
+                let previous = self.transcripts[key]
+                self.transcripts[key] = TranscriptRead(size: size, mtime: mtime, info: info, phase: phase)
+                // The same reading in the same phase would change nothing; skip the re-publish.
+                if let previous, previous.info == info, previous.phase == phase { return }
                 self.engine.apply(info, to: key)
                 if let limits = info.codexLimits { self.usage.update(codex: limits) }
                 self.publish()
@@ -306,8 +320,10 @@ final class IslandModel: ObservableObject {
     }
 
     private func publish() {
-        sessions = engine.orderedSessions
-        pending = engine.pending
+        // Assigning an equal value still fires objectWillChange and re-renders every observer.
+        let ordered = engine.orderedSessions
+        if ordered != sessions { sessions = ordered }
+        if engine.pending != pending { pending = engine.pending }
         updateIdleTab()
         let live = Set(pending.map(\.id))
         if externalMenus.keys.contains(where: { !live.contains($0) }) { externalMenus = externalMenus.filter { live.contains($0.key) } }
@@ -519,4 +535,12 @@ struct NotchMetrics: Equatable {
             hasNotch: false, notchWidth: widthOverride > 0 ? widthOverride : 0,
             notchHeight: heightOverride > 0 ? heightOverride : menuBar, screenFrame: screen.frame)
     }
+}
+
+/// The last transcript reading of a session, and the file state and phase it was taken at.
+private struct TranscriptRead: Sendable {
+    var size: UInt64
+    var mtime: Date
+    var info: TranscriptInfo
+    var phase: SessionPhase
 }

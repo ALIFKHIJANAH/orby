@@ -346,6 +346,32 @@ private func legacy(_ config: JSONValue) throws -> JSONValue {
         #expect(info.gitBranch == "dev")
     }
 
+    @Test func claudeTranscriptStopsAtEmptyBranch() {
+        // Outside a repo the branch is "": still settled, and older lines aren't consulted.
+        let lines = [
+            #"{"type":"user","gitBranch":"old","message":{"content":"hi"}}"#,
+            #"{"type":"assistant","gitBranch":"","message":{"content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":5}}}"#,
+        ]
+        let info = TranscriptReader.parseClaude(lines)
+        #expect(info.gitBranch == nil)
+        #expect(info.lastAssistantText == "Done.")
+    }
+
+    @Test func tailSurvivesCutInsideCharacter() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("tail-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        // "é" is two bytes; a 10-byte tail of the 11-byte file starts inside it.
+        try Data("é\n{\"a\":1}\n".utf8).write(to: url)
+        #expect(TranscriptReader.tailLines(path: url.path, maxBytes: 10) == [#"{"a":1}"#])
+    }
+
+    @Test func jsonValueDecodesEveryKind() throws {
+        let v = try JSONValue.decode(Data(#"{"n":null,"t":true,"f":false,"i":1,"d":1.5,"s":"x","a":[0,"y"],"o":{"k":"v"}}"#.utf8))
+        #expect(v == ["n": nil, "t": true, "f": false, "i": 1, "d": 1.5, "s": "x", "a": [0, "y"], "o": ["k": "v"]])
+        // Through Codable (bridge envelopes) as well.
+        #expect(try JSONDecoder().decode(JSONValue.self, from: v.encoded()) == v)
+    }
+
     @Test func claudeLiveThinkingOnlyWhenNewest() {
         let thinking = #"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Check the cache first."}]}}"#
         let toolUse = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}"#

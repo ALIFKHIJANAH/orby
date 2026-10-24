@@ -24,8 +24,10 @@ public enum TranscriptReader {
         let size = (try? handle.seekToEnd()) ?? 0
         let start = size > UInt64(maxBytes) ? size - UInt64(maxBytes) : 0
         try? handle.seek(toOffset: start)
-        guard let data = try? handle.readToEnd(), let text = String(data: data, encoding: .utf8) else { return [] }
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        // Lenient decoding: the cut can land inside a multi-byte character, which would make a
+        // strict decode fail and lose the whole tail. That first line is dropped below anyway.
+        guard let data = try? handle.readToEnd() else { return [] }
+        var lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true)
         if start > 0, !lines.isEmpty { lines.removeFirst() }  // likely a partial line
         return lines
     }
@@ -38,9 +40,16 @@ public enum TranscriptReader {
     public static func parseClaude<S: StringProtocol>(_ lines: [S]) -> TranscriptInfo {
         var info = TranscriptInfo()
         var newestSeen = false
+        // Outside a repo Claude writes "gitBranch": "", which still settles the branch.
+        var branchSeen = false
         for line in lines.reversed() {
-            guard let obj = try? JSONValue.decode(Data(line.utf8)) else { continue }
-            if info.gitBranch == nil, let b = obj["gitBranch"]?.string, !b.isEmpty { info.gitBranch = b }
+            // Only user and assistant lines matter; skip the rest (progress, snapshots) undecoded.
+            guard line.contains("\"assistant\"") || line.contains("\"user\""), let obj = try? JSONValue.decode(Data(line.utf8))
+            else { continue }
+            if !branchSeen, let b = obj["gitBranch"]?.string {
+                branchSeen = true
+                if !b.isEmpty { info.gitBranch = b }
+            }
             if !newestSeen, ["user", "assistant"].contains(obj["type"]?.string), obj["isSidechain"]?.bool != true {
                 newestSeen = true
                 // Claude writes one line per content block, so a trailing thinking block is live.
@@ -73,7 +82,7 @@ public enum TranscriptReader {
                     info.contextLimit = claudeContextLimit(model: info.model, used: used)
                 }
             }
-            if info.contextTokens != nil, info.lastAssistantText != nil, info.gitBranch != nil { break }
+            if info.contextTokens != nil, info.lastAssistantText != nil, branchSeen { break }
         }
         return info
     }

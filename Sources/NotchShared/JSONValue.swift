@@ -11,12 +11,14 @@ public enum JSONValue: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
+        // Most likely first: every failed attempt throws and builds a DecodingError. JSONDecoder
+        // never coerces between these types, so the order doesn't change the result.
         if c.decodeNil() { self = .null }
-        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
-        else if let n = try? c.decode(Double.self) { self = .number(n) }
         else if let s = try? c.decode(String.self) { self = .string(s) }
-        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
+        else if let n = try? c.decode(Double.self) { self = .number(n) }
         else if let o = try? c.decode([String: JSONValue].self) { self = .object(o) }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let a = try? c.decode([JSONValue].self) { self = .array(a) }
         else {
             throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unsupported JSON value")
         }
@@ -64,8 +66,21 @@ extension JSONValue: ExpressibleByStringLiteral, ExpressibleByBooleanLiteral, Ex
 }
 
 public extension JSONValue {
+    /// Parses with JSONSerialization: several times faster than JSONDecoder here, which has to
+    /// guess each value's type by trial and error.
     static func decode(_ data: Data) throws -> JSONValue {
-        try JSONDecoder().decode(JSONValue.self, from: data)
+        JSONValue(any: try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed))
+    }
+
+    private init(any: Any) {
+        switch any {
+        case let s as String: self = .string(s)
+        // Bools also arrive as NSNumber; only the CFBoolean singletons are real booleans.
+        case let n as NSNumber: self = CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
+        case let o as [String: Any]: self = .object(o.mapValues(JSONValue.init(any:)))
+        case let a as [Any]: self = .array(a.map(JSONValue.init(any:)))
+        default: self = .null
+        }
     }
 
     func encoded(pretty: Bool = false) throws -> Data {
