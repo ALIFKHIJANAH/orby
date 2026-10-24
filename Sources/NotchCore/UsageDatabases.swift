@@ -24,9 +24,12 @@ final class UsageDatabases {
 
     private var openCode: [String: OpenCodeState] = [:]
     private var antigravity: [String: (stamp: Stamp, records: [UsageRecord])] = [:]
+    /// Whether the last `refresh` read or dropped anything.
+    private(set) var changed = false
 
     func refresh(home: URL, cutoff: Date) -> [UsageRecord] {
-        refreshOpenCode(home: home, cutoff: cutoff) + refreshAntigravity(home: home, cutoff: cutoff)
+        changed = false
+        return refreshOpenCode(home: home, cutoff: cutoff) + refreshAntigravity(home: home, cutoff: cutoff)
     }
 
     static func stamp(_ url: URL) -> Stamp? {
@@ -75,11 +78,15 @@ final class UsageDatabases {
             }
             // On a failed read keep the old state, so the next refresh retries.
             guard ok else { continue }
+            changed = true
             next.stamp = stamp
             next.messages = next.messages.filter { $0.value.date >= cutoff && $0.value.tokens > 0 }
             openCode[url.path] = next
         }
-        openCode = openCode.filter { live.contains($0.key) }
+        if openCode.keys.contains(where: { !live.contains($0) }) {
+            openCode = openCode.filter { live.contains($0.key) }
+            changed = true
+        }
         return openCode.values.flatMap(\.messages.values)
     }
 
@@ -100,9 +107,13 @@ final class UsageDatabases {
                     let records = Self.readAntigravity(f.url)
                 else { continue }
                 antigravity[f.url.path] = (stamp, records)
+                changed = true
             }
         }
-        antigravity = antigravity.filter { live.contains($0.key) }
+        if antigravity.keys.contains(where: { !live.contains($0) }) {
+            antigravity = antigravity.filter { live.contains($0.key) }
+            changed = true
+        }
         return antigravity.values.flatMap(\.records)
     }
 

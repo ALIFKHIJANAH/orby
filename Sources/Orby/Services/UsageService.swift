@@ -86,7 +86,7 @@ final class UsageService: ObservableObject {
         isScanning = true
         Task {
             let result = await index.refresh()
-            history = result.history
+            if result.history != history { history = result.history }
             if let l = result.codexLimits { update(codex: l) }
             isScanning = false
         }

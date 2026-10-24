@@ -249,15 +249,25 @@ public enum UsageScanner {
     static func history(_ records: [UsageRecord], since cutoff: Date) -> TokenHistory {
         var history = TokenHistory()
         var best: [String: UsageRecord] = [:]
+        // dayKey costs a calendar lookup and a format; every local midnight falls on a quarter
+        // hour (all UTC offsets and DST shifts are multiples of 15 min), so memoize per quarter.
+        var keys: [Int: String] = [:]
+        func day(_ date: Date) -> String {
+            let quarter = Int((date.timeIntervalSinceReferenceDate / 900).rounded(.down))
+            if let k = keys[quarter] { return k }
+            let k = TokenHistory.dayKey(date)
+            keys[quarter] = k
+            return k
+        }
         for r in records where r.date >= cutoff {
             guard let key = r.key else {
-                history.add(day: TokenHistory.dayKey(r.date), agent: r.agent, tokens: r.tokens)
+                history.add(day: day(r.date), agent: r.agent, tokens: r.tokens)
                 continue
             }
             if let cur = best[key], (cur.rank, cur.tokens) >= (r.rank, r.tokens) { continue }
             best[key] = r
         }
-        for r in best.values { history.add(day: TokenHistory.dayKey(r.date), agent: r.agent, tokens: r.tokens) }
+        for r in best.values { history.add(day: day(r.date), agent: r.agent, tokens: r.tokens) }
         return history
     }
 
@@ -288,17 +298,24 @@ public enum UsageScanner {
         return files
     }
 
-    /// Complete lines from `offset` on, and the offset just past the last one. A trailing line
-    /// without a newline is still being written and is left for the next read.
-    static func lines(_ url: URL, from offset: Int) -> (lines: [Substring], end: Int) {
-        guard let h = try? FileHandle(forReadingFrom: url) else { return ([], offset) }
+    /// Hands over the complete lines from `offset` on, a few MB at a time so a large transcript
+    /// is never held in memory whole, and returns the offset just past the last one. A trailing
+    /// line without a newline is still being written and is left for the next read.
+    static func lines(_ url: URL, from offset: Int, chunkSize: Int = 4 << 20, _ body: ([Substring]) -> Void) -> Int {
+        guard let h = try? FileHandle(forReadingFrom: url) else { return offset }
         defer { try? h.close() }
-        guard (try? h.seek(toOffset: UInt64(offset))) != nil, let data = try? h.readToEnd(),
-            let lastNewline = data.lastIndex(of: UInt8(ascii: "\n"))
-        else { return ([], offset) }
-        let complete = data[data.startIndex...lastNewline]
-        let text = String(decoding: complete, as: UTF8.self)
-        return (text.split(separator: "\n", omittingEmptySubsequences: true), offset + complete.count)
+        guard (try? h.seek(toOffset: UInt64(offset))) != nil else { return offset }
+        var end = offset
+        var pending = Data()
+        while let data = try? h.read(upToCount: chunkSize), !data.isEmpty {
+            pending.append(data)
+            guard let lastNewline = pending.lastIndex(of: UInt8(ascii: "\n")) else { continue }
+            let complete = pending[pending.startIndex...lastNewline]
+            body(String(decoding: complete, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true))
+            end += complete.count
+            pending = Data(pending[(lastNewline + 1)...])
+        }
+        return end
     }
 }
 
@@ -326,12 +343,16 @@ public final class UsageIndex {
 
     private var files: [String: FileState] = [:]
     private let databases = UsageDatabases()
+    /// The last result, keyed by the local day and window it covers, returned again while
+    /// nothing changed.
+    private var cached: (key: String, result: UsageScanner.Result)?
 
     public init() {}
 
     public func refresh(home: URL, days: Int = 30, now: Date = Date()) -> UsageScanner.Result {
         let cutoff = now.addingTimeInterval(-Double(days) * 86400)
         var live = Set<String>()
+        var changed = false
         for (dir, agent) in Self.transcriptSources {
             for f in UsageScanner.files(under: home.appendingPathComponent(dir), ext: "jsonl", modifiedAfter: cutoff)
             where Self.isTranscript(f.url, agent: agent) {
@@ -344,19 +365,26 @@ public final class UsageIndex {
                 next.mtime = f.mtime
                 next.size = f.size
                 Self.read(f.url, agent: agent, into: &next)
+                changed = true
                 next.records.removeAll { $0.date < cutoff }
                 files[f.url.path] = next
             }
         }
+        let before = files.count
         files = files.filter { live.contains($0.key) }
+        let databaseRecords = databases.refresh(home: home, cutoff: cutoff)
+        changed = changed || files.count != before || databases.changed
+        // A new day moves the cutoff, so the cached history only holds until midnight.
+        let key = "\(TokenHistory.dayKey(now))/\(days)"
+        if !changed, let cached, cached.key == key { return cached.result }
 
-        var records = files.values.flatMap(\.records)
-        records += databases.refresh(home: home, cutoff: cutoff)
+        let records = files.values.flatMap(\.records) + databaseRecords
         var result = UsageScanner.Result()
         result.history = UsageScanner.history(records, since: cutoff)
         for state in files.values {
             if let l = state.limits, l.fetchedAt > (result.codexLimits?.fetchedAt ?? .distantPast) { result.codexLimits = l }
         }
+        cached = (key, result)
         return result
     }
 
@@ -370,26 +398,27 @@ public final class UsageIndex {
     }
 
     private static func read(_ url: URL, agent: AgentKind, into state: inout FileState) {
-        let (lines, end) = UsageScanner.lines(url, from: state.offset)
-        state.offset = end
-        for line in lines {
-            switch agent {
-            case .codex:
-                guard let u = UsageScanner.codexUsage(line: line) else { continue }
-                if let l = u.limits { state.limits = l }
-                var tokens = u.tokens
-                if let total = u.total {
-                    // Codex sometimes re-emits the same totals; only count turns that moved them.
-                    if total == state.codexTotal { continue }
-                    if tokens == 0, let prev = state.codexTotal { tokens = total - prev }
-                    state.codexTotal = total
+        let end = UsageScanner.lines(url, from: state.offset) { lines in
+            for line in lines {
+                switch agent {
+                case .codex:
+                    guard let u = UsageScanner.codexUsage(line: line) else { continue }
+                    if let l = u.limits { state.limits = l }
+                    var tokens = u.tokens
+                    if let total = u.total {
+                        // Codex sometimes re-emits the same totals; only count turns that moved them.
+                        if total == state.codexTotal { continue }
+                        if tokens == 0, let prev = state.codexTotal { tokens = total - prev }
+                        state.codexTotal = total
+                    }
+                    state.records.append(UsageRecord(key: nil, date: u.date, agent: .codex, tokens: tokens))
+                case .qwen: if let r = UsageScanner.qwenUsage(line: line) { state.records.append(r) }
+                case .pi: if let r = UsageScanner.piUsage(line: line) { state.records.append(r) }
+                case .commandcode: if let r = UsageScanner.commandCodeUsage(line: line) { state.records.append(r) }
+                default: if let r = UsageScanner.claudeUsage(line: line) { state.records.append(r) }
                 }
-                state.records.append(UsageRecord(key: nil, date: u.date, agent: .codex, tokens: tokens))
-            case .qwen: if let r = UsageScanner.qwenUsage(line: line) { state.records.append(r) }
-            case .pi: if let r = UsageScanner.piUsage(line: line) { state.records.append(r) }
-            case .commandcode: if let r = UsageScanner.commandCodeUsage(line: line) { state.records.append(r) }
-            default: if let r = UsageScanner.claudeUsage(line: line) { state.records.append(r) }
             }
         }
+        state.offset = end
     }
 }

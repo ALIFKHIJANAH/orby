@@ -161,6 +161,17 @@ private func antigravityStep(created: Date, input: UInt64, output: UInt64, cache
 }
 
 @Suite struct UsageIndexTests {
+    @Test func linesStreamAcrossChunksAndLeaveThePartialLine() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lines-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("a\nbbbbb\nccc\npartial".utf8).write(to: url)
+        var seen: [String] = []
+        let end = UsageScanner.lines(url, from: 0, chunkSize: 3) { seen += $0.map(String.init) }
+        #expect(seen == ["a", "bbbbb", "ccc"])
+        #expect(end == 12)
+        #expect(UsageScanner.lines(url, from: end) { _ in } == end)
+    }
+
     @Test func appendedLinesAreReadFromTheLastOffset() throws {
         let home = TempHome()
         defer { home.remove() }
