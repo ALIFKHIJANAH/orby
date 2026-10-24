@@ -152,21 +152,21 @@ private struct LogoShape: Shape {
 struct StatusDot: View {
     let phase: SessionPhase
     var size: CGFloat = 8
-    @State private var pulse = false
+    var paused = false
 
     var body: some View {
         let color = Theme.color(for: phase)
-        Circle()
-            .fill(color)
-            .frame(width: size, height: size)
-            .shadow(color: phase.needsUser ? color.opacity(0.9) : .clear, radius: 4)
-            .opacity(phase.group == .working && pulse ? 0.35 : 1)
-            .animation(
-                phase.group == .working || phase.needsUser
-                    ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : .default, value: pulse
-            )
-            .onAppear { pulse = true }
-            .help(phase.label)
+        // Driven by the orbs' clock: a repeatForever animation would re-render the panel at the
+        // display's full refresh rate.
+        TimelineView(.animation(minimumInterval: AgentOrb.frameInterval, paused: paused || phase.group != .working)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            Circle()
+                .fill(color)
+                .frame(width: size, height: size)
+                .opacity(phase.group == .working ? 0.675 + 0.325 * cos(t * .pi / 0.8) : 1)
+        }
+        .shadow(color: phase.needsUser ? color.opacity(0.9) : .clear, radius: 4)
+        .help(phase.label)
     }
 }
 

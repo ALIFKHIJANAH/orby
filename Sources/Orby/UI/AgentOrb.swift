@@ -13,6 +13,8 @@ struct AgentOrb: View {
     var subagents = 0
     /// When the session last did anything; an orb left idle long enough dozes off.
     var idleSince: Date?
+    /// Stops the clock, e.g. while the orb is scrolled out of view.
+    var paused = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phaseChangedAt = Date.distantPast
     @State private var taskChangedAt = Date.distantPast
@@ -22,8 +24,7 @@ struct AgentOrb: View {
     static let frameInterval = 1.0 / 30
 
     var body: some View {
-        // Calm phases still blink and sway, but 15 fps is plenty for that.
-        TimelineView(.animation(minimumInterval: chat != nil || phase.isLively ? Self.frameInterval : 2 * Self.frameInterval)) { context in
+        TimelineView(.animation(minimumInterval: interval, paused: paused)) { context in
             let now = context.date
             let pose = OrbPose(
                 phase: phase, task: phase == .working ? activity : nil, t: now.timeIntervalSinceReferenceDate,
@@ -42,6 +43,14 @@ struct AgentOrb: View {
         .onChange(of: activity) { taskChangedAt = .now }
         .help("\(agent.displayName) · \(phase.label)")
     }
+
+    /// Calm phases still blink and sway, but 15 fps is plenty for that; a dozing orb only
+    /// breathes. Re-evaluated with the body, so dozing off may take until the next model update.
+    private var interval: Double {
+        if chat != nil || phase.isLively { return Self.frameInterval }
+        let dozing = (phase == .ready || phase == .waitingInput) && (idleSince.map { -$0.timeIntervalSinceNow > 180 } ?? false)
+        return (dozing ? 4 : 2) * Self.frameInterval
+    }
 }
 
 /// The orb with the agent's logo pinned to its shoulder, for lists where several agents sit side by side.
@@ -52,9 +61,10 @@ struct AgentMascot: View {
     var activity: ActivityKind?
     var subagents = 0
     var idleSince: Date?
+    var paused = false
 
     var body: some View {
-        AgentOrb(agent: agent, phase: phase, size: size, activity: activity, subagents: subagents, idleSince: idleSince)
+        AgentOrb(agent: agent, phase: phase, size: size, activity: activity, subagents: subagents, idleSince: idleSince, paused: paused)
             .overlay(alignment: .topLeading) {
                 AgentLogoBadge(agent: agent, size: size * 0.48)
                     .offset(x: -size * 0.22, y: -size * 0.22)
@@ -522,12 +532,15 @@ private struct OrbPose {
 
     /// Three z's drifting up and growing as they fade.
     private func drawSnores(in ctx: GraphicsContext, r: CGFloat) {
+        // Lay the glyph out once and scale it, rather than resolving three Texts every frame.
+        let z = ctx.resolve(Text("z").font(.system(size: r, weight: .heavy, design: .rounded)).foregroundColor(.white))
         for i in 0..<3 {
             let p = (t * 0.45 * motion + Double(i) / 3).truncatingRemainder(dividingBy: 1)
-            let at = CGPoint(x: r * (0.85 + 0.5 * p + 0.12 * sin(p * 6)), y: -r * (0.65 + 0.85 * p))
-            let text = Text("z").font(.system(size: r * (0.45 + 0.35 * p), weight: .heavy, design: .rounded))
-                .foregroundColor(.white.opacity(0.8 * sin(.pi * p)))
-            ctx.draw(text, at: at)
+            var c = ctx
+            c.translateBy(x: r * (0.85 + 0.5 * p + 0.12 * sin(p * 6)), y: -r * (0.65 + 0.85 * p))
+            c.scaleBy(x: 0.45 + 0.35 * p, y: 0.45 + 0.35 * p)
+            c.opacity = 0.8 * sin(.pi * p)
+            c.draw(z, at: .zero)
         }
     }
 

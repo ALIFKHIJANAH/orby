@@ -67,7 +67,7 @@ final class NotchPanelController {
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.reposition() }
             .store(in: &cancellables)
-        model.$shapeSize.combineLatest(model.$expansion)
+        model.shapeSizeChanged.map { _ in }.merge(with: model.$expansion.map { _ in })
             .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouse(at: NSEvent.mouseLocation) } }
             .store(in: &cancellables)
 

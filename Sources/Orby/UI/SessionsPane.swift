@@ -104,14 +104,15 @@ struct SessionRow: View {
     @EnvironmentObject var model: IslandModel
     let session: AgentSession
     @State private var hovering = false
+    @State private var offscreen = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
             ZStack(alignment: .bottomTrailing) {
                 AgentMascot(
                     agent: session.agent, phase: session.phase, size: 30, activity: session.activity?.kind,
-                    subagents: session.activeSubagents, idleSince: session.updatedAt)
-                StatusDot(phase: session.phase, size: 8)
+                    subagents: session.activeSubagents, idleSince: session.updatedAt, paused: offscreen)
+                StatusDot(phase: session.phase, size: 8, paused: offscreen)
                     .overlay(Circle().stroke(Color.black, lineWidth: 1.5))
                     .offset(x: 3, y: 3)
             }
@@ -163,6 +164,7 @@ struct SessionRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .onScrollVisibility { offscreen = !$0 }
         .onTapGesture { model.jump(to: session) }
         .help("Click to jump to \(terminalName)")
         .contextMenu {
@@ -270,5 +272,17 @@ private struct EmptyState: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 18)
         .onAppear { integrations = IntegrationStatus.current() }
+    }
+}
+
+extension View {
+    /// Reports when the view scrolls in or out of sight, so off-screen orbs can stop animating.
+    /// A no-op before macOS 15, where the rows simply keep animating.
+    @ViewBuilder func onScrollVisibility(_ action: @escaping (Bool) -> Void) -> some View {
+        if #available(macOS 15, *) {
+            onScrollVisibilityChange(threshold: 0.01, action)
+        } else {
+            self
+        }
     }
 }

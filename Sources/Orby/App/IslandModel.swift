@@ -19,8 +19,12 @@ final class IslandModel: ObservableObject {
     @Published private(set) var expansion: ExpansionReason?
     @Published var tab: IslandTab = .sessions
     @Published var metrics = NotchMetrics.fallback
-    /// Size of the visible black shape, reported by the view, used for mouse hit-testing.
-    @Published var shapeSize: CGSize = .zero
+    /// Size of the visible black shape, reported by the view, used for mouse hit-testing. Not
+    /// @Published: it changes on every frame of an expand/collapse spring, and no view reads it.
+    var shapeSize: CGSize = .zero {
+        didSet { if shapeSize != oldValue { shapeSizeChanged.send(shapeSize) } }
+    }
+    let shapeSizeChanged = PassthroughSubject<CGSize, Never>()
     @Published private(set) var highlightedSession: String?
     @Published var selectedRequestIndex = 0 {
         didSet { if oldValue != selectedRequestIndex { updateHotKeys() } }
