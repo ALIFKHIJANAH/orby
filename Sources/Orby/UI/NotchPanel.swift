@@ -84,6 +84,7 @@ final class NotchPanelController {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateMouse(at: NSEvent.mouseLocation) }
         }
+        pollTimer?.tolerance = 0.03
         // Click anywhere else closes the panel (except an unseen request; see outsideClick).
         monitors.append(NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in

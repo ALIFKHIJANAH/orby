@@ -38,6 +38,7 @@ final class UsageService: ObservableObject {
                 }
             },
         ]
+        for timer in timers { timer.tolerance = 30 }
     }
 
     func loadPreview(history: TokenHistory, claude: RateLimits?, codex: RateLimits?, antigravity: RateLimits? = nil) {

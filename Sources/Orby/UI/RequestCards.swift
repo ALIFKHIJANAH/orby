@@ -12,11 +12,10 @@ struct RequestFocusView: View {
     /// (or at the notch as it pops open) can't land on this one.
     @State private var armed = PreviewRenderer.active
 
-    private var risks: [Risk] { RiskAssessor.assess(tool: request.toolName, input: request.toolInput) }
-    private var danger: Bool { risks.contains { $0.severity == .danger } }
-    private var accent: Color { danger ? Theme.error : Theme.attention }
-
     var body: some View {
+        // Assessed once per render: it runs a batch of regexes over the tool input.
+        let risks = RiskAssessor.assess(tool: request.toolName, input: request.toolInput)
+        let accent = risks.contains { $0.severity == .danger } ? Theme.error : Theme.attention
         VStack(alignment: .leading, spacing: 12) {
             RequestHeader(request: request, session: session)
             Group {
@@ -303,9 +302,6 @@ private struct ExternalPromptBody: View {
     let session: AgentSession
     let risks: [Risk]
 
-    /// Re-read the agent's menu while the card is up; it can appear a moment after the log line.
-    private let refresh = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
     var body: some View {
         let menu = model.externalMenus[request.id]
         let inFlight = model.answering[request.id]
@@ -355,8 +351,14 @@ private struct ExternalPromptBody: View {
                 }
             }
         }
-        .onAppear { model.loadExternalMenu(request) }
-        .onReceive(refresh) { _ in if inFlight == nil { model.loadExternalMenu(request) } }
+        // Re-read the agent's menu while the card is up; it can appear a moment after the log line.
+        // A task rather than a stored Timer.publish, which every re-render of the card recreated.
+        .task(id: request.id) {
+            while !Task.isCancelled {
+                model.loadExternalMenu(request)
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 }
 

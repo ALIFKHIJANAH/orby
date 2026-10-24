@@ -50,6 +50,7 @@ final class IslandModel: ObservableObject {
     private var connections: [String: BridgeConnection] = [:]
     private var lastTranscriptRead: [String: Date] = [:]
     private var transcripts: [String: TranscriptRead] = [:]
+    private var readingMenus: Set<String> = []
     private var collapseWork: DispatchWorkItem?
     private var pruneTimer: Timer?
     private var thinkingTimer: Timer?
@@ -76,6 +77,9 @@ final class IslandModel: ObservableObject {
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
             Task { @MainActor [weak self] in self?.prune() }
         }
+        // Slack lets the system coalesce these wakeups with others.
+        thinkingTimer?.tolerance = 0.4
+        pruneTimer?.tolerance = 1
     }
 
     // MARK: Bridge events
@@ -136,15 +140,19 @@ final class IslandModel: ObservableObject {
     /// Read the agent's menu back from its pane. A menu means the card can offer answers;
     /// none (unsupported terminal, prompt not visible) leaves just "Go to terminal".
     func loadExternalMenu(_ request: PendingRequest) {
+        // One read at a time: a screen read spawns osascript or tmux and can outlast the poll.
         guard request.kind == .external, Prefs.bool(PrefKey.antigravityAnswerFromNotch), answering[request.id] == nil,
-            let session = session(for: request.sessionKey)
+            !readingMenus.contains(request.id), let session = session(for: request.sessionKey)
         else { return }
         let terminal = session.terminal
         let id = request.id
+        readingMenus.insert(id)
         Task.detached(priority: .userInitiated) {
             let menu = TerminalController.for(terminal)?.readScreen().flatMap(AntigravityMenu.parse)
             await MainActor.run { [weak self] in
-                guard let self, self.engine.pending.contains(where: { $0.id == id }), self.externalMenus[id] != menu else { return }
+                guard let self else { return }
+                self.readingMenus.remove(id)
+                guard self.engine.pending.contains(where: { $0.id == id }), self.externalMenus[id] != menu else { return }
                 self.externalMenus[id] = menu
                 self.updateHotKeys()
             }

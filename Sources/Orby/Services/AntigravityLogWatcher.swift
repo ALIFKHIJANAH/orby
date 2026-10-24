@@ -28,11 +28,25 @@ final class AntigravityLogWatcher {
 
     func start() {
         guard timer == nil else { return }
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            // Antigravity hasn't run here: check back now and then instead of polling twice a
+            // second. Every log that shows up later is new, so read it from the top.
+            started = true
+            timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { _ in
+                MainActor.assumeIsolated { [weak self] in
+                    self?.timer = nil
+                    self?.start()
+                }
+            }
+            timer?.tolerance = 5
+            return
+        }
         poll()
         started = true
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             MainActor.assumeIsolated { [weak self] in self?.poll() }
         }
+        timer?.tolerance = 0.1
     }
 
     func stop() {
