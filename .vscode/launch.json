@@ -1,0 +1,44 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:NotchIsland}",
+      "name": "Debug Orby",
+      "target": "Orby",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug Orby"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:NotchIsland}",
+      "name": "Release Orby",
+      "target": "Orby",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release Orby"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:NotchIsland}",
+      "name": "Debug orby-bridge",
+      "target": "orby-bridge",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug orby-bridge"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:NotchIsland}",
+      "name": "Release orby-bridge",
+      "target": "orby-bridge",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release orby-bridge"
+    }
+  ]
+}

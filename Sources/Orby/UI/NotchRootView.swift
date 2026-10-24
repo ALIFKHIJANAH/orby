@@ -31,15 +31,16 @@ struct NotchRootView: View {
                     .frame(width: panelWidth)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             } else {
-                CollapsedView(wing: wing)
+                CollapsedView(wing: wing, showsContent: hasActivity)
                     .frame(width: max(0, collapsedWidth - 2 * flare), height: collapsedHeight)
                     .transition(.opacity)
             }
         }
         .padding(.horizontal, flare)
-        .background(shape.fill(Theme.surface))
         .clipShape(shape)
-        .shadow(color: .black.opacity(model.isExpanded ? 0.45 : 0), radius: 18, y: 8)
+        // Shadow on the static backdrop only: on the whole island it re-rendered and blurred
+        // everything offscreen on every orb frame, even while collapsed with the shadow invisible.
+        .background(shape.fill(Theme.surface).shadow(color: .black.opacity(model.isExpanded ? 0.45 : 0), radius: 18, y: 8))
         .contentShape(shape)
         .onTapGesture { if !model.isExpanded { model.expand(.click) } }
     }
@@ -64,10 +65,13 @@ struct NotchRootView: View {
 struct CollapsedView: View {
     @EnvironmentObject var model: IslandModel
     let wing: CGFloat
+    /// False while the tab has shrunk back to the plain notch: the orb would still animate,
+    /// unseen, under the hardware notch.
+    var showsContent = true
 
     var body: some View {
         HStack(spacing: 0) {
-            leading.frame(width: wing)
+            Group { if showsContent { leading } }.frame(width: wing)
             Spacer(minLength: 0)
             if !model.metrics.hasNotch {
                 Text(summary)
@@ -76,7 +80,7 @@ struct CollapsedView: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            trailing.frame(width: wing)
+            Group { if showsContent { trailing } }.frame(width: wing)
         }
         .opacity(model.sessions.isEmpty ? 0 : 1)
     }
@@ -184,7 +188,7 @@ struct WorkingIndicator: View {
     let count: Int
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20)) { context in
+        TimelineView(.animation(minimumInterval: AgentOrb.frameInterval)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             HStack(spacing: 2.5) {
                 ForEach(0..<3) { i in

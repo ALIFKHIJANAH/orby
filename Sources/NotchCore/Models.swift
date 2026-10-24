@@ -32,6 +32,8 @@ public enum SessionPhase: String, Codable, Sendable {
     case ready, thinking, working, compacting, waitingInput, needsApproval, needsAnswer, planReview, done, error
 
     public var needsUser: Bool { [.needsApproval, .needsAnswer, .planReview].contains(self) }
+    /// Phases whose orb moves quickly (hops, glances, bobbing) and needs a high frame rate.
+    public var isLively: Bool { group == .working || needsUser }
 
     public var label: String {
         switch self {

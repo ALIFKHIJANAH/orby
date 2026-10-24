@@ -17,8 +17,13 @@ struct AgentOrb: View {
     @State private var phaseChangedAt = Date.distantPast
     @State private var taskChangedAt = Date.distantPast
 
+    /// Frame interval of lively orbs. Other notch animations reuse it so their ticks land on the
+    /// same frames: two timelines at different rates render the whole panel at the union of both.
+    static let frameInterval = 1.0 / 30
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+        // Calm phases still blink and sway, but 15 fps is plenty for that.
+        TimelineView(.animation(minimumInterval: chat != nil || phase.isLively ? Self.frameInterval : 2 * Self.frameInterval)) { context in
             let now = context.date
             let pose = OrbPose(
                 phase: phase, task: phase == .working ? activity : nil, t: now.timeIntervalSinceReferenceDate,
@@ -31,7 +36,6 @@ struct AgentOrb: View {
                     accent: Theme.color(for: phase))
             }
             .frame(width: size * 2, height: size * 2)
-            .shadow(color: Theme.color(for: phase).opacity(pose.glow), radius: size * 0.22)
         }
         .frame(width: size, height: size)
         .onChange(of: phase) { phaseChangedAt = .now }
@@ -314,6 +318,15 @@ private struct OrbPose {
         ctx.scaleBy(x: scale.width, y: scale.height)
         ctx.translateBy(x: 0, y: -r)
 
+        // Glow drawn in the canvas: a view-level .shadow on content that changes every frame
+        // forces an offscreen render and blur per frame.
+        if glow > 0.01 {
+            let g = 1.45 * r
+            ctx.fill(
+                Path(ellipseIn: CGRect(x: -g, y: -g, width: 2 * g, height: 2 * g)),
+                with: .radialGradient(
+                    Gradient(colors: [accent.opacity(glow * 0.8), accent.opacity(0)]), center: .zero, startRadius: 0.85 * r, endRadius: g))
+        }
         ctx.fill(Path(ellipseIn: CGRect(x: -r, y: -r, width: 2 * r, height: 2 * r)), with: .color(fill))
         for side in [-1.0, 1.0] { drawEye(in: ctx, side: side, r: r, color: eyes) }
         drawHeldProps(in: ctx, r: r, accent: accent)

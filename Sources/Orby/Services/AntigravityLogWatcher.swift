@@ -12,6 +12,11 @@ final class AntigravityLogWatcher {
     private var partial: [String: String] = [:]
     private var timer: Timer?
     private var started = false
+    /// Logs touched in the last 15 minutes. The folder holds hundreds of old logs (agy writes one
+    /// per run), so it is only re-listed when it changes or every 30 s, not on every tick.
+    private var recent: [URL] = []
+    private var listedStamp: Date?
+    private var listedAt = Date.distantPast
 
     init(
         directory: URL = NotchPaths.homeDirectory.appendingPathComponent(".gemini/antigravity-cli/log"),
@@ -35,12 +40,27 @@ final class AntigravityLogWatcher {
         timer = nil
     }
 
+    private func relistIfNeeded(cutoff: Date) {
+        let stamp = (try? directory.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        guard stamp != listedStamp || Date().timeIntervalSince(listedAt) > 30 else { return }
+        listedStamp = stamp
+        listedAt = Date()
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        recent = files.filter {
+            $0.lastPathComponent.hasPrefix("cli-") && $0.pathExtension == "log"
+                && ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast) >= cutoff
+        }
+    }
+
     private func poll() {
-        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) else { return }
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
         let cutoff = Date().addingTimeInterval(-15 * 60)
-        for url in files where url.lastPathComponent.hasPrefix("cli-") && url.pathExtension == "log" {
-            let values = try? url.resourceValues(forKeys: Set(keys))
+        relistIfNeeded(cutoff: cutoff)
+        for url in recent {
+            // Fresh stat: cached URL resource values would hide the file growing.
+            var url = url
+            url.removeAllCachedResourceValues()
+            let values = try? url.resourceValues(forKeys: keys)
             guard (values?.contentModificationDate ?? .distantPast) >= cutoff else { continue }
             let size = UInt64(values?.fileSize ?? 0)
             let name = url.lastPathComponent

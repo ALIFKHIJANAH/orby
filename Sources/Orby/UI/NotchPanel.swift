@@ -50,6 +50,9 @@ final class NotchPanelController {
         let host = FirstClickHostingView(rootView: AnyView(NotchRootView().environmentObject(model)))
         host.frame = CGRect(origin: .zero, size: Self.canvas)
         host.autoresizingMask = [.width, .height]
+        // The canvas size is fixed, so skip the size constraints SwiftUI otherwise re-derives on
+        // every frame an orb animates.
+        host.sizingOptions = []
         panel.contentView = host
     }
 
@@ -78,7 +81,7 @@ final class NotchPanelController {
         } as Any)
         // Event monitors can miss moves (other apps' tracking, cursor warps, Space switches);
         // a cheap position poll keeps hover state honest.
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateMouse(at: NSEvent.mouseLocation) }
         }
         // Click anywhere else closes the panel (except an unseen request; see outsideClick).
@@ -121,7 +124,7 @@ final class NotchPanelController {
         rect = rect.insetBy(dx: -slack, dy: -slack)
         rect.size.height += 4
         let inside = rect.contains(point)
-        panel.ignoresMouseEvents = !inside
+        if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
         guard inside != mouseInside else { return }
         mouseInside = inside
         if debug { NSLog("Orby hover: inside=\(inside) point=\(point) rect=\(rect) expanded=\(model.isExpanded)") }
