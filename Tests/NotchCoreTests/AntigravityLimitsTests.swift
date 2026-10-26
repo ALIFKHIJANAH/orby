@@ -94,7 +94,8 @@ struct AntigravityQuotaTests {
         #expect(limits.windows.map(\.label) == ["Gemini 5h", "Gemini 7d", "Claude/GPT 5h", "Claude/GPT 7d"])
         #expect(limits.windows.map { Int(($0.used * 100).rounded()) } == [3, 2, 0, 18])
         #expect(limits.windows[0].resetsAt == iso("2026-10-21T03:19:39Z"))
-        #expect(limits.mostPressured?.label == "Claude/GPT 7d")
+        // Not mostPressured: it skips windows past their reset by the real clock, and these reset in 2026-10.
+        #expect(limits.windows.max { $0.used < $1.used }?.label == "Claude/GPT 7d")
     }
 
     @Test func usageCommandIsReadDefensively() throws {
