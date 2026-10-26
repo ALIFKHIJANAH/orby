@@ -67,6 +67,10 @@ scripts/make-dmg.sh 0.1.0       # packs it into build/release/Orby-0.1.0.dmg
 swift test                      # unit + bridge↔socket end-to-end tests
 ```
 
+To ship a version, run `scripts/release.sh 0.2.0 [notes.md]` from a clean tree. It builds the app
+and DMG, pushes tag `v0.2.0`, publishes the GitHub release, and uploads the DMG to the R2 bucket
+behind the website's Download button (`scripts/publish-download.sh`, which you can rerun alone).
+
 Then open **Settings → Integrations** and click **Connect** for each agent you use.
 Restart running agent sessions so they load the new hooks.
 
