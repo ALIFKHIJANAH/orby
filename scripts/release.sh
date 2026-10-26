@@ -27,8 +27,12 @@ ditto -c -k --keepParent build/Orby.app "$ZIP"
 
 git tag -a "$TAG" -m "Orby $VERSION"
 git push origin "$TAG"
-if [[ -n "$NOTES" ]]; then NOTES_ARGS=(--notes-file "$NOTES"); else NOTES_ARGS=(--generate-notes); fi
-gh release create "$TAG" "$DMG" "$ZIP" --verify-tag --title "Orby $VERSION" "${NOTES_ARGS[@]}"
+SUMS="$(printf '\nSHA-256\n'; for f in "$DMG" "$ZIP"; do printf -- '- `%s` `%s`\n' "$(basename "$f")" "$(shasum -a 256 "$f" | cut -d' ' -f1)"; done)"
+if [[ -n "$NOTES" ]]; then
+  gh release create "$TAG" "$DMG" "$ZIP" --verify-tag --title "Orby $VERSION" --notes "$(cat "$NOTES")"$'\n'"$SUMS"
+else
+  gh release create "$TAG" "$DMG" "$ZIP" --verify-tag --title "Orby $VERSION" --generate-notes --notes "$SUMS"
+fi
 
 scripts/publish-download.sh "$VERSION"
 echo "Released Orby $VERSION"
