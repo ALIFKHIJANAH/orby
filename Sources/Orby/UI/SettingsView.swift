@@ -86,12 +86,15 @@ private struct GeneralSettings: View {
     @AppStorage(PrefKey.clickToJump) private var clickToJump = true
     @AppStorage(PrefKey.hideWhenIdle) private var hideWhenIdle = true
     @AppStorage(PrefKey.idleHideSeconds) private var idleHideSeconds = 10.0
+    @AppStorage(PrefKey.showHeadphoneConnected) private var showHeadphones = true
     @AppStorage(PrefKey.showMenuBarIcon) private var showMenuBarIcon = true
     @AppStorage(PrefKey.finishedSessionTTLMinutes) private var ttl = 60.0
     @AppStorage(PrefKey.display) private var display = DisplayChoice.auto.rawValue
     @AppStorage(PrefKey.notchWidthOverride) private var notchWidth = 0.0
     @AppStorage(PrefKey.notchHeightOverride) private var notchHeight = 0.0
     @AppStorage(PrefKey.panelWidth) private var panelWidth = 560.0
+    @AppStorage(PrefKey.trustMinutes) private var trustMinutes = 30.0
+    @AppStorage(PrefKey.reminderMinutes) private var reminderMinutes = 0.0
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -123,6 +126,7 @@ private struct GeneralSettings: View {
             Toggle("Don't pop up finished tasks when the agent's terminal is in front", isOn: $quietWhenFocused)
                 .help("Approvals and questions always open the notch.")
             Toggle("Click a session to jump to its terminal", isOn: $clickToJump)
+            Toggle("Show headphones when they connect", isOn: $showHeadphones)
             Toggle("Hide the notch tab when agents are done or idle", isOn: $hideWhenIdle)
             if hideWhenIdle {
                 Picker("Hide after", selection: $idleHideSeconds) {
@@ -140,6 +144,25 @@ private struct GeneralSettings: View {
                 Text("4 hours").tag(240.0)
                 Text("24 hours").tag(1440.0)
             }
+        }
+        Section {
+            Picker("Remind me about unanswered requests", selection: $reminderMinutes) {
+                Text("Never").tag(0.0)
+                Text("After 2 minutes").tag(2.0)
+                Text("After 5 minutes").tag(5.0)
+                Text("After 10 minutes").tag(10.0)
+            }
+            Picker("Trusting a session lasts", selection: $trustMinutes) {
+                Text("10 minutes").tag(10.0)
+                Text("30 minutes").tag(30.0)
+                Text("1 hour").tag(60.0)
+                Text("4 hours").tag(240.0)
+            }
+        } header: {
+            Text("Agents")
+        } footer: {
+            Text("A trusted session's requests are allowed without asking, except anything Orby flags as risky (deleting files, force-pushing, sudo, secrets…). Questions and plans always ask.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         Section("Display") {
             Picker("Show on", selection: $display) {
@@ -304,6 +327,10 @@ private struct SoundSettings: View {
     @AppStorage(PrefKey.soundTheme) private var theme = SoundTheme.chiptune.rawValue
     @AppStorage(PrefKey.soundVolume) private var volume = 0.5
     @AppStorage(PrefKey.customSoundFolder) private var folder = ""
+    @AppStorage(PrefKey.muteWhenLocked) private var muteWhenLocked = true
+    @AppStorage(PrefKey.quietHoursEnabled) private var quietHours = false
+    @AppStorage(PrefKey.quietHoursStart) private var quietStart = 22
+    @AppStorage(PrefKey.quietHoursEnd) private var quietEnd = 8
 
     var body: some View {
         Section("Theme") {
@@ -317,14 +344,29 @@ private struct SoundSettings: View {
                     Spacer()
                     Button("Choose Folder…") { chooseFolder() }
                 }
-                Text("Name files after events: approval, question, plan, done, error, start (.wav/.mp3/.m4a/.aiff). Missing files fall back to 8-bit.")
+                Text("Name files after events: approval, question, plan, done, error, start, context (.wav/.mp3/.m4a/.aiff). Missing files fall back to 8-bit.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        Section("Quiet") {
+            Toggle("Mute while the screen is locked", isOn: $muteWhenLocked)
+            Toggle("Quiet hours", isOn: $quietHours)
+            if quietHours {
+                Picker("From", selection: $quietStart) { hours }
+                Picker("Until", selection: $quietEnd) { hours }
             }
         }
         Section("Events") {
             ForEach(SoundCue.allCases, id: \.self) { cue in
                 CueRow(cue: cue, sound: sound)
             }
+        }
+    }
+
+    private var hours: some View {
+        ForEach(0..<24, id: \.self) { h in
+            Text(Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date())?.formatted(date: .omitted, time: .shortened) ?? "\(h):00")
+                .tag(h)
         }
     }
 

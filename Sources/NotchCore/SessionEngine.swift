@@ -79,6 +79,8 @@ public struct SessionEngine: Sendable {
             s.attention = nil
             s.thinking = nil
             s.unread = false
+            // A finished list belongs to the last turn; an unfinished one carries on.
+            if s.tasks?.isFinished == true { s.tasks = nil }
             out.cancelledRequests = cancelPending { $0.sessionKey == key }
 
         case "PreToolUse":
@@ -97,6 +99,9 @@ public struct SessionEngine: Sendable {
             s.lastToolStep = step
             s.lastToolName = p["tool_name"]?.string
             s.lastToolInput = p["tool_input"]
+            if let tool = s.lastToolName, let tasks = TaskProgress.parse(tool: tool, input: p["tool_input"] ?? .object([:])) {
+                s.tasks = tasks
+            }
             if let step { attachExternalPrompt(step: step, to: &s, now: now, out: &out) }
 
         case "PostToolUse", "PostToolUseFailure":
@@ -316,6 +321,20 @@ public struct SessionEngine: Sendable {
             sessions[req.sessionKey] = s
         }
         return req
+    }
+
+    /// The user stopped the turn from the notch (Esc in its terminal). Claude Code and Codex don't
+    /// always send Stop for an interrupted turn, so settle the session here.
+    public mutating func markInterrupted(sessionKey key: String, now: Date = Date()) -> [String] {
+        guard var s = sessions[key] else { return [] }
+        s.phase = .waitingInput
+        s.activity = nil
+        s.attention = nil
+        s.thinking = nil
+        s.activeSubagents = 0
+        s.updatedAt = now
+        sessions[key] = s
+        return cancelPending { $0.sessionKey == key }
     }
 
     /// The bridge disconnected (agent killed the hook because the user answered in the terminal).

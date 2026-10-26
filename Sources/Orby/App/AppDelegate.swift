@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var cancellables: Set<AnyCancellable> = []
     private var antigravityWatcher: AntigravityLogWatcher?
+    private var headphoneMonitor: HeadphoneMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         LegacyMigration.run()
@@ -44,6 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let watcher = AntigravityLogWatcher { event, logID in model.antigravityLog(event, logID: logID) }
         watcher.start()
         antigravityWatcher = watcher
+        let headphones = HeadphoneMonitor(
+            onConnect: { model.headphonesConnected($0) }, onBattery: { model.headphoneBattery(id: $0, $1) })
+        headphones.start()
+        headphoneMonitor = headphones
         let panel = NotchPanelController(model: model)
         panel.show()
         self.panel = panel

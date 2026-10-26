@@ -105,8 +105,66 @@ struct SessionRow: View {
     let session: AgentSession
     @State private var hovering = false
     @State private var offscreen = false
+    @State private var typingReply = false
+    @State private var replyText = ""
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            row
+                .contentShape(Rectangle())
+                .onTapGesture { model.jump(to: session) }
+            if typingReply {
+                ReplyField(text: $replyText, agent: session.agent.displayName) {
+                    model.reply(to: session, text: replyText)
+                    replyText = ""
+                    typingReply = false
+                } cancel: {
+                    typingReply = false
+                }
+            }
+            if model.replying.contains(session.id) {
+                Text("Sending your reply…")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.tertiaryText)
+            }
+            if let error = model.replyErrors[session.id] {
+                Text(error)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.attention)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(hovering ? Theme.cardHover : Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(highlight, lineWidth: 1)
+        )
+        .onHover { hovering = $0 }
+        .onScrollVisibility { offscreen = !$0 }
+        .help("Click to jump to \(terminalName)")
+        .contextMenu {
+            Button("Jump to \(terminalName)") { model.jump(to: session) }
+            if canReply { Button("Reply…") { typingReply = true } }
+            if canStop { Button("Stop Agent (Esc)") { model.interrupt(session) } }
+            if model.trusted[session.id] != nil {
+                Button("Stop Trusting This Session") { model.untrust(sessionKey: session.id) }
+            } else {
+                Button("Trust Safe Requests for \(Int(Prefs.double(PrefKey.trustMinutes))) min") { model.trust(sessionKey: session.id) }
+            }
+            Divider()
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(session.cwd, forType: .string)
+            }
+            Button("Reveal in Finder") { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.cwd) }
+            if let model = session.model { Text("Model: \(model)") }
+            Divider()
+            Button("Dismiss") { self.model.dismiss(session) }
+        }
+    }
+
+    private var row: some View {
         HStack(alignment: .center, spacing: 16) {
             ZStack(alignment: .bottomTrailing) {
                 AgentMascot(
@@ -126,6 +184,12 @@ struct SessionRow: View {
                     if let branch = session.git?.branch {
                         BranchChip(branch: branch, worktree: session.git?.isWorktree ?? false)
                     }
+                    if let until = model.trusted[session.id] {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.done)
+                            .help("Allowing safe requests without asking until \(until.formatted(date: .omitted, time: .shortened))")
+                    }
                     if session.activeSubagents > 0 {
                         Label("\(session.activeSubagents)", systemImage: "person.2.fill")
                             .font(.system(size: 10, weight: .semibold))
@@ -133,10 +197,13 @@ struct SessionRow: View {
                             .help("\(session.activeSubagents) subagents running")
                     }
                     Spacer(minLength: 4)
-                    TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        // A working session that has been quiet this long may be stuck, or just running a long build.
+                        let quiet = session.phase.group == .working && context.date.timeIntervalSince(session.updatedAt) > 600
                         Text(session.updatedAt.shortAgo)
                             .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(Theme.tertiaryText)
+                            .foregroundStyle(quiet ? Theme.attention : Theme.tertiaryText)
+                            .help(quiet ? "No new activity for \(session.updatedAt.shortAgo)" : "Last activity")
                     }
                 }
                 Text(subtitle)
@@ -152,32 +219,28 @@ struct SessionRow: View {
                         .truncationMode(.middle)
                         .help(detail)
                 }
+                if let tasks = session.tasks, tasks.total > 0 { TaskProgressLine(tasks: tasks) }
+            }
+            if hovering && canStop {
+                Button { model.interrupt(session) } label: { Image(systemName: "stop.fill") }
+                    .buttonStyle(IconButtonStyle(active: false))
+                    .help("Stop the agent's turn (presses Esc in its terminal)")
+            } else if hovering && canReply && !typingReply {
+                Button { typingReply = true } label: { Image(systemName: "arrowshape.turn.up.left.fill") }
+                    .buttonStyle(IconButtonStyle(active: false))
+                    .help("Reply to \(session.agent.displayName)")
             }
             if let ctx = session.contextPercent { ContextRing(fraction: ctx) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(hovering ? Theme.cardHover : Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(highlight, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .onScrollVisibility { offscreen = !$0 }
-        .onTapGesture { model.jump(to: session) }
-        .help("Click to jump to \(terminalName)")
-        .contextMenu {
-            Button("Jump to \(terminalName)") { model.jump(to: session) }
-            Button("Copy Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.cwd, forType: .string)
-            }
-            Button("Reveal in Finder") { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.cwd) }
-            if let model = session.model { Text("Model: \(model)") }
-            Divider()
-            Button("Dismiss") { self.model.dismiss(session) }
-        }
+    }
+
+    /// The agent sits at its prompt and its pane can be typed into.
+    private var canReply: Bool {
+        [.done, .waitingInput, .ready].contains(session.phase) && TerminalController.reach(session.terminal).type
+    }
+
+    private var canStop: Bool {
+        session.phase.group == .working && TerminalController.reach(session.terminal).interrupt
     }
 
     private var highlight: Color {
@@ -224,6 +287,60 @@ struct SessionRow: View {
             return ((path as NSString).lastPathComponent as NSString).deletingPathExtension
         }
         return session.terminal.termProgram ?? "terminal"
+    }
+}
+
+/// The agent's to-do list as a bar and "3/7 · what it's on now".
+private struct TaskProgressLine: View {
+    let tasks: TaskList
+
+    var body: some View {
+        HStack(spacing: 6) {
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.12))
+                    Capsule().fill(tasks.isFinished ? Theme.done : Theme.working)
+                        .frame(width: g.size.width * tasks.fraction)
+                }
+            }
+            .frame(width: 44, height: 3)
+            Text("\(tasks.done)/\(tasks.total)")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+            if let current = tasks.current {
+                Text(current).lineLimit(1).truncationMode(.tail)
+            }
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(Theme.secondaryText)
+        .padding(.top, 2)
+        .help(tasks.items.map { ($0.status == .completed ? "✓ " : $0.status == .inProgress ? "▸ " : "· ") + $0.title }.joined(separator: "\n"))
+    }
+}
+
+/// Inline prompt typed into the agent's terminal on Return.
+private struct ReplyField: View {
+    @Binding var text: String
+    let agent: String
+    let submit: () -> Void
+    let cancel: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrowshape.turn.up.left.fill").foregroundStyle(Theme.tertiaryText)
+            TextField("Reply to \(agent) and press Return", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .focused($focused)
+                .onSubmit(submit)
+                .onExitCommand(perform: cancel)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.working.opacity(0.5), lineWidth: 1))
+        .onAppear { focused = true }
     }
 }
 

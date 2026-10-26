@@ -12,6 +12,7 @@ enum PrefKey {
     static let clickToJump = "clickToJump"
     static let showMenuBarIcon = "showMenuBarIcon"
     static let hideWhenIdle = "hideWhenIdle"
+    static let showHeadphoneConnected = "showHeadphoneConnected"
     static let idleHideSeconds = "idleHideSeconds"
     static let finishedSessionTTLMinutes = "finishedSessionTTLMinutes"
     static let display = "display"
@@ -34,6 +35,14 @@ enum PrefKey {
     static let antigravityStatusLine = "antigravityStatusLine"
     /// Run `agy -p "/usage"` every few minutes (agy then asks Google with the user's login).
     static let antigravityUsageEnabled = "antigravityUsageEnabled"
+    /// Minutes a trusted session auto-allows safe requests.
+    static let trustMinutes = "trustMinutes"
+    /// Replay a request's cue once after this many minutes unanswered; 0 = off.
+    static let reminderMinutes = "reminderMinutes"
+    static let muteWhenLocked = "muteWhenLocked"
+    static let quietHoursEnabled = "quietHoursEnabled"
+    static let quietHoursStart = "quietHoursStart"
+    static let quietHoursEnd = "quietHoursEnd"
     static func soundEnabled(_ cue: SoundCue) -> String { "sound.\(cue.rawValue)" }
 }
 
@@ -70,6 +79,7 @@ enum Prefs {
             PrefKey.clickToJump: true,
             PrefKey.showMenuBarIcon: true,
             PrefKey.hideWhenIdle: true,
+            PrefKey.showHeadphoneConnected: true,
             PrefKey.idleHideSeconds: 10.0,
             PrefKey.finishedSessionTTLMinutes: 60.0,
             PrefKey.display: DisplayChoice.auto.rawValue,
@@ -87,6 +97,12 @@ enum Prefs {
             PrefKey.antigravityAnswerFromNotch: true,
             PrefKey.antigravityStatusLine: false,
             PrefKey.antigravityUsageEnabled: false,
+            PrefKey.trustMinutes: 30.0,
+            PrefKey.reminderMinutes: 0.0,
+            PrefKey.muteWhenLocked: true,
+            PrefKey.quietHoursEnabled: false,
+            PrefKey.quietHoursStart: 22,
+            PrefKey.quietHoursEnd: 8,
         ]
         for cue in SoundCue.allCases { values[PrefKey.soundEnabled(cue)] = cue != .start }
         defaults.register(defaults: values)

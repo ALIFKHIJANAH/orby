@@ -26,6 +26,17 @@ enum TerminalController {
         }
     }
 
+    /// What `for(_:)` can offer for this pane — typing text, and pressing Esc to interrupt — judged
+    /// without spawning anything, so views can ask while they render.
+    static func reach(_ t: TerminalContext) -> (type: Bool, interrupt: Bool) {
+        if t.tmuxPane != nil || t.orcaTabID != nil || t.orcaPane != nil { return (true, true) }
+        switch t.bundleID {
+        case "com.apple.Terminal": return (t.tty != nil, false)
+        case "com.googlecode.iterm2": return (t.itermSessionID != nil, t.itermSessionID != nil)
+        default: return (false, false)
+        }
+    }
+
     /// `type` on Terminal.app always presses Return after the text (`do script` can't avoid it).
     var appendsReturn: Bool { if case .terminalApp = self { true } else { false } }
 
@@ -72,6 +83,21 @@ enum TerminalController {
             return osascript(iTermSession(id: id, body: "tell s to write text \"\"")) != nil
         case .tmux(let pane, let socket):
             return tmux(socket, ["send-keys", "-t", pane, "Enter"]) != nil
+        }
+    }
+
+    /// Press Esc, which stops the running turn in Claude Code and Codex without quitting them.
+    @discardableResult
+    func sendEscape() -> Bool {
+        switch self {
+        case .orca(let cli, let handle):
+            return TerminalJumper.run(cli, ["terminal", "send", "--terminal", handle, "--text", "\u{1b}"]) != nil
+        case .terminalApp:
+            return false  // `do script` always adds Return, so a lone Esc can't be sent
+        case .iTerm(let id):
+            return osascript(iTermSession(id: id, body: "tell s to write text (character id 27) newline NO")) != nil
+        case .tmux(let pane, let socket):
+            return tmux(socket, ["send-keys", "-t", pane, "Escape"]) != nil
         }
     }
 

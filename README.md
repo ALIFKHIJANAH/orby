@@ -20,13 +20,21 @@ optional Claude plan-limit request (and, if you turn it on, the quota check agy 
 
 - **Live sessions**: thinking / working / needs you / finished (thinking shows the latest reasoning line when the transcript has it, and the notch orb ponders with a thought bubble), current tool, last reply, context-window %, subagents,
   grouped by project with git branch and worktree.
+- **Task progress**: the agent's to-do list (Claude `TodoWrite`, Codex `update_plan`) as a bar and
+  `3/7 · current item` on its session row.
 - **Approvals from the notch**: Allow (⌘Y), Deny (⌘N), Always allow (Claude's own suggested rule),
   or hand it back to the terminal.
+- **Trust a session**: "Allow, and trust this session for 30 min" auto-allows its next safe requests.
+  Anything Orby flags as risky, questions and plans still ask. Duration in Settings → General → Agents.
+- **Reply and stop**: type a reply to a finished or waiting session, or stop a working one (sends Esc).
+  Works in tmux, iTerm2 and Orca panes; Terminal.app supports reply only.
 - **Questions**: answer `AskUserQuestion` prompts: single or multi-select, several questions, free text.
 - **Plan review**: Markdown-rendered plan with Approve, Approve + auto-accept edits, or send feedback.
 - **Jump back**: click a session to focus its iTerm2 session, Terminal.app tab (by tty), tmux pane,
   Kitty/WezTerm pane, or the VS Code / Cursor / Windsurf / Zed window holding the project.
 - **Sounds**: synthesized 8-bit cues, macOS sounds, or your own folder of sounds; per-event toggles.
+  A cue when a session's context passes 85%. Optional reminders replay the cue for a request left
+  unanswered. Quiet hours and mute-while-locked (Settings → Sounds → Quiet) silence sounds only.
 - **Usage**: Codex 5h/weekly limits (from local logs), Claude 5h/weekly limits (opt-in), Antigravity
   5h/weekly limits per model group with the plan tier, and a 7-day token chart stacked per agent
   for Claude Code, Codex, OpenCode, Antigravity, Qwen Code, Pi and Command Code, read-only from

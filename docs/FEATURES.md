@@ -41,8 +41,10 @@ agent (claude, codex, …)
 | Group by project, branches + git worktrees | ◐ | ✅ | ✅ (reads `.git`, worktrees grouped under main repo) |
 | Context-window % per session | ✅ | ✅ | ✅ |
 | Subagent count | ✅ | — | ✅ |
-| Task checklist / goal progress | ✅ | ✅ | — |
+| Task checklist / goal progress | ✅ | ✅ | ✅ (Claude `TodoWrite`, Codex `update_plan`; bar + `3/7 · current item` on the session row) |
 | **Approve / deny from the notch** | ✅ | ✅ | ✅ (Allow, Deny, Always allow from suggestions, hand back to terminal) |
+| Trust a session: auto-allow its safe requests for N min | ? | ? | ✅ ("Allow, and trust this session" on the card, or the row's menu; anything flagged risky, questions and plans still ask; shield badge while trusted) |
+| Reply to / stop an agent from the notch | ? | ✅ (Reply) | ✅ reply to a finished or waiting session; Stop sends Esc to a working one (tmux, iTerm2, Orca; Terminal.app reply only) |
 | Keyboard shortcuts for approvals | ✅ ⌘Y/⌘N + configurable | — | ✅ ⌘Y / ⌘N while a request is open |
 | Answer AskUserQuestion (single, multi-select, multiple questions, free text) | ✅ | ✅ (Reply) | ✅ |
 | Plan review with Markdown + feedback | ✅ | ✅ (plan ready alert) | ✅ (Approve, Approve + auto-edit, send feedback) |
@@ -50,6 +52,7 @@ agent (claude, codex, …)
 | Click to jump to exact tab/pane | ✅ iTerm2, Terminal, Ghostty, Warp, WezTerm, Kitty, tmux, Zellij, IDEs | ✅ Ghostty, iTerm2, Warp, VS Code, Conductor | ✅ iTerm2 (session), Terminal (tty), tmux (pane), Kitty, WezTerm, VS Code/Cursor/Windsurf/Zed (folder window); others: app activation |
 | Don't pop up when the agent's terminal is already focused | ✅ | — | ✅ |
 | Sounds per event | ✅ 8-bit + sound packs, quiet hours | ✅ 5 sounds, per-event | ✅ synthesized 8-bit, macOS sounds, custom folder; per-event toggles + preview |
+| Quiet rules, reminders, context alert | ◐ quiet hours | — | ✅ quiet hours, mute while locked, replay the cue for unanswered requests after 2/5/10 min, cue at 85% context, long-quiet working sessions tint their time |
 | Plan usage limits | ✅ Claude, Codex, Kimi, GLM, DeepSeek | ✅ Claude, Codex, Cursor, Kimi, OpenCode Go | ✅ Codex (local logs), ✅ Claude (opt-in, Claude Code sign-in), ✅ Antigravity (opt-in: agy status line relay, or `agy -p /usage`) |
 | Usage alerts / pace / early-empty countdown | ✅ threshold alerts | ✅ pace tick, 85% line | ◐ 85% danger line, reset countdown |
 | Token history (day/7d/30d, per provider) | ✅ | ✅ | ✅ 7-day chart stacked per agent (Claude, Codex, OpenCode, Antigravity, Qwen, Pi, Command Code); tail-only scan of JSONL, read-only SQLite |
@@ -76,7 +79,7 @@ agent (claude, codex, …)
 1. More agents (see [research/agent-integrations.md](research/agent-integrations.md)): Factory Droid, GitHub Copilot CLI, Gemini CLI (needs a JSONC-safe writer), Kimi Code CLI (TOML), OpenCode 2.x plugin API, Cursor's own `hooks.json`, Antigravity approvals via `PreToolUse` `auto_approve`.
 2. Session filters (hide by directory / first prompt) and a global switcher shortcut.
 3. Multi-display, appearance themes, reduce motion.
-4. Quiet hours / Focus-aware muting; usage threshold alerts.
+4. Focus-aware muting; usage threshold alerts.
    Future opt-in plan limits (see [research/agent-usage.md](research/agent-usage.md)), each off by default behind its own toggle:
    OpenCode Go (`opencode.ai/zen/go/v1/usage`, API key from OpenCode's `auth.json`), Command Code
    (`api.commandcode.ai/alpha/...`, API key), Cursor (unofficial dashboard API, full session token).

@@ -26,6 +26,11 @@ final class IslandModel: ObservableObject {
     }
     let shapeSizeChanged = PassthroughSubject<CGSize, Never>()
     @Published private(set) var highlightedSession: String?
+    /// Headphones just connected: the collapsed tab widens to show them for a few seconds.
+    @Published private(set) var headphoneBanner: HeadphoneEvent?
+    private var bannerWork: DispatchWorkItem?
+    /// The cursor is over the island; the collapsed tab leans out a little in anticipation.
+    @Published private(set) var hovering = false
     @Published var selectedRequestIndex = 0 {
         didSet { if oldValue != selectedRequestIndex { updateHotKeys() } }
     }
@@ -40,6 +45,15 @@ final class IslandModel: ObservableObject {
     /// External requests being answered from the notch, and why an answer didn't take.
     @Published private(set) var answering: [String: AntigravityMenu.Kind] = [:]
     @Published private(set) var answerErrors: [String: String] = [:]
+    /// Sessions whose safe permission requests are allowed without asking, until the given time.
+    @Published private(set) var trusted: [String: Date] = [:]
+    /// Replies being typed into an agent's terminal, and why the last reply or stop didn't take.
+    @Published private(set) var replying: Set<String> = []
+    @Published private(set) var replyErrors: [String: String] = [:]
+    /// Sessions already warned that their context is almost full (cleared once it drops again).
+    private var contextWarned: Set<String> = []
+    /// Requests whose reminder cue has played.
+    private var reminded: Set<String> = []
     /// ⌘1…⌘9 presses while a question is open, as zero-based option indexes.
     let optionShortcut = PassthroughSubject<Int, Never>()
 
@@ -92,7 +106,7 @@ final class IslandModel: ObservableObject {
             return
         }
         let before = Set(engine.pending.map(\.id))
-        let outcome = engine.handle(envelope)
+        var outcome = engine.handle(envelope)
         logNewExternalPrompts(since: before)
 
         if let connection {
@@ -109,6 +123,15 @@ final class IslandModel: ObservableObject {
             }
         }
         release(outcome.cancelledRequests, reason: RequestLog.releaseReason(for: envelope.eventName))
+
+        if let request = engine.pending.first(where: { $0.id == envelope.id }), isTrusted(request.sessionKey),
+            TrustPolicy.autoAllows(request)
+        {
+            RequestLog.write("auto-allowed(trust)", id: request.id, session: request.sessionKey, tool: request.toolName)
+            decide(request, .allow())
+            outcome.cue = nil
+            outcome.reveal = nil
+        }
 
         if let key = outcome.sessionKey { refreshTranscript(key, force: outcome.refreshTranscript) }
         if let cue = outcome.cue { sound.play(cue) }
@@ -204,6 +227,66 @@ final class IslandModel: ObservableObject {
         }
     }
 
+    // MARK: Talking to the agent's terminal
+
+    /// Send a follow-up prompt by typing it into the agent's pane. Only while the agent sits at its
+    /// prompt; the session's next UserPromptSubmit confirms it arrived.
+    func reply(to session: AgentSession, text: String) {
+        let line = text.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let key = session.id
+        guard !line.isEmpty, [.done, .waitingInput, .ready].contains(session.phase), !replying.contains(key) else { return }
+        replying.insert(key)
+        replyErrors[key] = nil
+        let terminal = session.terminal
+        let model = self  // lives as long as the app; the task ends within ~4 s
+        Task.detached(priority: .userInitiated) {
+            // UserPromptSubmit moves the session out of done/waiting; a vanished session ended the matter.
+            func started() async -> Bool {
+                await MainActor.run { model.engine.sessions[key].map { $0.phase.group != .finished } ?? true }
+            }
+            guard let controller = TerminalController.for(terminal), controller.type(line) else {
+                return await model.terminalActionFailed(key, "Couldn't reach its terminal. Opened it instead.")
+            }
+            if !controller.appendsReturn {
+                try? await Task.sleep(for: .milliseconds(150))
+                controller.pressReturn()
+            }
+            for _ in 0..<15 where !(await started()) { try? await Task.sleep(for: .milliseconds(200)) }
+            let ok = await started()
+            await MainActor.run {
+                model.replying.remove(key)
+                RequestLog.write(ok ? "replied-from-notch" : "reply-unconfirmed", id: "-", session: key)
+            }
+            if !ok { await model.terminalActionFailed(key, "The agent didn't pick up the reply. Opened its terminal.") }
+        }
+    }
+
+    /// Stop the running turn by pressing Esc in the agent's pane.
+    func interrupt(_ session: AgentSession) {
+        guard session.phase.group == .working else { return }
+        let key = session.id
+        let terminal = session.terminal
+        let model = self
+        Task.detached(priority: .userInitiated) {
+            let ok = TerminalController.for(terminal)?.sendEscape() ?? false
+            await MainActor.run {
+                guard ok else { return model.terminalActionFailed(key, "Couldn't stop it from here. Opened its terminal.") }
+                RequestLog.write("interrupted-from-notch", id: "-", session: key)
+                model.release(model.engine.markInterrupted(sessionKey: key), reason: "interrupted")
+                model.publish()
+            }
+        }
+    }
+
+    private func terminalActionFailed(_ key: String, _ message: String) {
+        replying.remove(key)
+        replyErrors[key] = message
+        if let session = engine.sessions[key] { TerminalJumper.jump(to: session) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            if self?.replyErrors[key] == message { self?.replyErrors[key] = nil }
+        }
+    }
+
     /// Preview renderer only.
     func previewSetMenu(_ menu: AntigravityMenu, for requestID: String) {
         externalMenus[requestID] = menu
@@ -258,6 +341,24 @@ final class IslandModel: ObservableObject {
         collapseIfIdle()
     }
 
+    /// Allow this request and let the session's next safe requests through for `trustMinutes`.
+    func allowAndTrust(_ request: PendingRequest) {
+        trust(sessionKey: request.sessionKey)
+        decide(request, .allow())
+    }
+
+    // MARK: Trust
+
+    func isTrusted(_ sessionKey: String) -> Bool { (trusted[sessionKey] ?? .distantPast) > Date() }
+
+    func trust(sessionKey: String) {
+        trusted[sessionKey] = Date().addingTimeInterval(max(1, Prefs.double(PrefKey.trustMinutes)) * 60)
+    }
+
+    func untrust(sessionKey: String) {
+        trusted[sessionKey] = nil
+    }
+
     func allowCurrent() {
         guard let r = currentRequest, r.kind == .permission else { return }
         decide(r, .allow())
@@ -291,6 +392,9 @@ final class IslandModel: ObservableObject {
     }
 
     private func prune() {
+        let now = Date()
+        if trusted.values.contains(where: { $0 <= now }) { trusted = trusted.filter { $0.value > now } }
+        remindUnanswered(now: now)
         let ttl = Prefs.double(PrefKey.finishedSessionTTLMinutes) * 60
         let before = engine.sessions.count
         release(engine.prune(doneTTL: ttl, isAlive: ProcessTree.isAlive), reason: "pruned")
@@ -299,6 +403,35 @@ final class IslandModel: ObservableObject {
         transcripts = transcripts.filter { engine.sessions[$0.key] != nil }
         publish()
     }
+
+    /// Play a request's cue once more when it has sat unanswered for `reminderMinutes`.
+    private func remindUnanswered(now: Date) {
+        reminded.formIntersection(engine.pending.map(\.id))
+        let after = Prefs.double(PrefKey.reminderMinutes) * 60
+        guard after > 0 else { return }
+        for r in engine.pending where now.timeIntervalSince(r.receivedAt) >= after && reminded.insert(r.id).inserted {
+            RequestLog.write("reminded", id: r.id, session: r.sessionKey)
+            let cue: SoundCue =
+                switch r.kind {
+                case .question: .question
+                case .plan: .plan
+                case .permission, .external: .approval
+                }
+            sound.play(cue)
+        }
+    }
+
+    /// One cue when a session's context crosses 85%; it can warn again after compaction frees space.
+    private func checkContext(_ key: String, before: Double) {
+        guard let after = engine.sessions[key]?.contextPercent else { return }
+        if after < Self.contextWarning {
+            contextWarned.remove(key)
+        } else if before < Self.contextWarning, contextWarned.insert(key).inserted {
+            sound.play(.context)
+        }
+    }
+
+    static let contextWarning = 0.85
 
     private func refreshTranscript(_ key: String, force: Bool) {
         guard let s = engine.sessions[key], let path = s.transcriptPath else { return }
@@ -320,7 +453,9 @@ final class IslandModel: ObservableObject {
                 self.transcripts[key] = TranscriptRead(size: size, mtime: mtime, info: info, phase: phase)
                 // The same reading in the same phase would change nothing; skip the re-publish.
                 if let previous, previous.info == info, previous.phase == phase { return }
+                let context = self.engine.sessions[key]?.contextPercent ?? 0
                 self.engine.apply(info, to: key)
+                self.checkContext(key, before: context)
                 if let limits = info.codexLimits { self.usage.update(codex: limits) }
                 self.publish()
             }
@@ -336,6 +471,8 @@ final class IslandModel: ObservableObject {
         let live = Set(pending.map(\.id))
         if externalMenus.keys.contains(where: { !live.contains($0) }) { externalMenus = externalMenus.filter { live.contains($0.key) } }
         if answering.keys.contains(where: { !live.contains($0) }) { answering = answering.filter { live.contains($0.key) } }
+        if trusted.keys.contains(where: { engine.sessions[$0] == nil }) { trusted = trusted.filter { engine.sessions[$0.key] != nil } }
+        contextWarned = contextWarned.filter { engine.sessions[$0] != nil }
         if selectedRequestIndex >= pending.count { selectedRequestIndex = max(0, pending.count - 1) }
         updateHotKeys()
     }
@@ -347,6 +484,7 @@ final class IslandModel: ObservableObject {
     func expand(_ reason: ExpansionReason) {
         if debug { NSLog("Orby: expand(\(reason))") }
         collapseWork?.cancel()
+        clearHeadphoneBanner()
         if expansion == nil || reason == .attention { expansion = reason }
         if reason == .hover || reason == .click { mouseHasEntered = true }
         updateHotKeys()
@@ -367,12 +505,14 @@ final class IslandModel: ObservableObject {
 
     /// Mouse left the panel. Hover/click panels close; attention panels close only once seen.
     func mouseExited() {
+        hovering = false
         guard let reason = expansion else { return }
         if reason == .attention && !mouseHasEntered { return }
         scheduleCollapse(after: 0.35)
     }
 
     func mouseEntered() {
+        hovering = true
         collapseWork?.cancel()
         mouseHasEntered = true
     }
@@ -426,6 +566,35 @@ final class IslandModel: ObservableObject {
             collapseWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
         }
+    }
+
+    // MARK: Headphones
+
+    /// Like iPhone with AirPods: a short-lived wide tab, never the full panel. An open panel
+    /// (or a request waiting in it) wins.
+    func headphonesConnected(_ event: HeadphoneEvent) {
+        guard Prefs.bool(PrefKey.showHeadphoneConnected), expansion == nil else { return }
+        headphoneBanner = event
+        clearHeadphoneBanner(after: 3)
+    }
+
+    /// The level often lands a moment after the banner: give the ring time to fill and be read.
+    func headphoneBattery(id: String, _ battery: HeadphoneBattery) {
+        guard headphoneBanner?.id == id else { return }
+        headphoneBanner?.battery = battery
+        clearHeadphoneBanner(after: 2.5)
+    }
+
+    private func clearHeadphoneBanner(after seconds: TimeInterval) {
+        bannerWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.clearHeadphoneBanner() }
+        bannerWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    private func clearHeadphoneBanner() {
+        bannerWork?.cancel()
+        if headphoneBanner != nil { headphoneBanner = nil }
     }
 
     /// Don't pop over the very terminal the user is already looking at.

@@ -248,6 +248,16 @@ private struct PermissionBody: View {
                     .foregroundStyle(Theme.tertiaryText)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            if !model.isTrusted(request.sessionKey) {
+                Button { model.allowAndTrust(request) } label: {
+                    Label("Allow, and trust this session for \(Int(Prefs.double(PrefKey.trustMinutes))) min", systemImage: "checkmark.shield")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Safe requests from this session are allowed without asking. Anything Orby flags still asks.")
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
     }
 

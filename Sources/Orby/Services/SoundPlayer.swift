@@ -12,14 +12,30 @@ final class SoundPlayer {
     private var last: (cue: SoundCue, at: Date)?
     /// Events often arrive in bursts (several hooks for one turn); within this window only a more urgent cue gets through.
     private static let burstWindow: TimeInterval = 0.8
+    private var screenLocked = false
+    private var lockObservers: [NSObjectProtocol] = []
 
     init() {
         for cue in SoundCue.allCases { chiptune[cue] = Self.wav(notes: Self.melody(cue)) }
+        let center = DistributedNotificationCenter.default()
+        for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+            lockObservers.append(center.addObserver(forName: .init(name), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screenLocked = locked }
+            })
+        }
+    }
+
+    /// Nobody is there to hear it (screen locked), or the user asked for quiet at this hour.
+    private var muted: Bool {
+        if screenLocked && Prefs.bool(PrefKey.muteWhenLocked) { return true }
+        guard Prefs.bool(PrefKey.quietHoursEnabled) else { return false }
+        return QuietHours.contains(
+            Date(), start: Prefs.defaults.integer(forKey: PrefKey.quietHoursStart), end: Prefs.defaults.integer(forKey: PrefKey.quietHoursEnd))
     }
 
     func play(_ cue: SoundCue, preview: Bool = false) {
         guard preview || Prefs.bool(PrefKey.soundEnabled(cue)) else { return }
-        if Prefs.soundTheme == .off && !preview { return }
+        if (Prefs.soundTheme == .off || muted) && !preview { return }
         if !preview, let last, Date().timeIntervalSince(last.at) < Self.burstWindow,
            Self.priority(cue) <= Self.priority(last.cue) { return }
         stop()
@@ -88,7 +104,7 @@ final class SoundPlayer {
     private static func priority(_ cue: SoundCue) -> Int {
         switch cue {
         case .approval, .question, .plan, .error: 2
-        case .done: 1
+        case .done, .context: 1
         case .start: 0
         }
     }
@@ -101,6 +117,7 @@ final class SoundPlayer {
         case .done: "Glass"
         case .error: "Basso"
         case .start: "Tink"
+        case .context: "Submarine"
         }
     }
 
@@ -113,6 +130,7 @@ final class SoundPlayer {
         case .done: [(523, 0.07), (659, 0.07), (784, 0.07), (1047, 0.18)]
         case .error: [(440, 0.11), (349, 0.11), (262, 0.22)]
         case .start: [(1047, 0.05), (1568, 0.08)]
+        case .context: [(988, 0.08), (0, 0.05), (988, 0.08), (784, 0.16)]
         }
     }
 

@@ -157,6 +157,8 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
     public var lastToolStep: Int?
     public var lastToolName: String?
     public var lastToolInput: JSONValue?
+    /// The agent's to-do list, from its last TodoWrite / update_plan call.
+    public var tasks: TaskList?
 
     public init(agent: AgentKind, sessionID: String, cwd: String, now: Date) {
         self.id = "\(agent.rawValue):\(sessionID)"
@@ -221,7 +223,7 @@ public struct PendingRequest: Identifiable, Hashable, Sendable {
 }
 
 public enum SoundCue: String, CaseIterable, Codable, Sendable {
-    case approval, question, plan, done, error, start
+    case approval, question, plan, done, error, start, context
 
     public var label: String {
         switch self {
@@ -231,6 +233,7 @@ public enum SoundCue: String, CaseIterable, Codable, Sendable {
         case .done: "Task complete"
         case .error: "Error"
         case .start: "Session start"
+        case .context: "Context almost full"
         }
     }
 }

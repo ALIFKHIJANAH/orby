@@ -21,7 +21,20 @@ enum PreviewRenderer {
             ("collapsed-working", 90, { m in working(m, repo); m.collapse() }),
             ("collapsed-attention", 90, { m in working(m, repo); permission(m, repo); m.collapse() }),
             ("collapsed-thinking", 90, { m in working(m, repo); thinking(m); m.collapse() }),
-            ("expanded-sessions", 520, { m in working(m, repo); thinking(m); m.expand(.click) }),
+            ("collapsed-headphones", 90, { m in
+                m.headphonesConnected(HeadphoneEvent(id: "a", name: "AirPods Pro"))
+                m.headphoneBattery(id: "a", HeadphoneBattery(left: 85, right: 90, caseLevel: 40))
+            }),
+            ("collapsed-headset", 90, { m in
+                working(m, repo)
+                m.collapse()
+                m.headphonesConnected(HeadphoneEvent(id: "b", name: "KiiP TH60"))
+            }),
+            ("expanded-sessions", 520, { m in
+                working(m, repo); taskList(m, repo); thinking(m)
+                m.trust(sessionKey: "codex:b")
+                m.expand(.click)
+            }),
             ("expanded-permission", 520, { m in working(m, repo); codexWaiting(m); permission(m, repo); m.expand(.attention) }),
             ("expanded-edit", 560, { m in working(m, repo); editRequest(m, repo); m.expand(.attention) }),
             ("expanded-antigravity", 440, { m in working(m, repo); antigravityPrompt(m) }),
@@ -110,6 +123,22 @@ enum PreviewRenderer {
         var reply = TranscriptInfo()
         reply.lastAssistantText = "## Summary\n\nUpdated **CHANGELOG.md** for `v2.3` and bumped the version in `package.json`.\n\n- Added the rate-limit entry"
         m.previewApply(reply, to: "claude:c")
+    }
+
+    /// Session "a" writes a checklist (3 of 7 done), then goes back to its test run.
+    private static func taskList(_ m: IslandModel, _ repo: String) {
+        let todos: JSONValue = [
+            ["content": "Reproduce the redirect loop", "status": "completed", "activeForm": "Reproducing the redirect loop"],
+            ["content": "Find where the session cookie is set", "status": "completed", "activeForm": "Finding where the session cookie is set"],
+            ["content": "Move setSession before redirect", "status": "completed", "activeForm": "Moving setSession before redirect"],
+            ["content": "Run the auth tests", "status": "in_progress", "activeForm": "Running the auth tests"],
+            ["content": "Guard against ?error= responses", "status": "pending", "activeForm": "Guarding against ?error= responses"],
+            ["content": "Add an integration test", "status": "pending", "activeForm": "Adding an integration test"],
+            ["content": "Update the changelog", "status": "pending", "activeForm": "Updating the changelog"],
+        ]
+        send(m, ["hook_event_name": "PreToolUse", "session_id": "a", "cwd": .string(repo), "tool_name": "TodoWrite", "tool_input": ["todos": todos]])
+        send(m, ["hook_event_name": "PostToolUse", "session_id": "a", "cwd": .string(repo), "tool_name": "TodoWrite", "tool_input": ["todos": todos]])
+        send(m, ["hook_event_name": "PreToolUse", "session_id": "a", "cwd": .string(repo), "tool_name": "Bash", "tool_input": ["command": "cd web && pnpm test auth --reporter=dot", "description": "Run the auth tests"]])
     }
 
     private static func thinking(_ m: IslandModel) {
