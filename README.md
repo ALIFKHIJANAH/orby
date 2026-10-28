@@ -138,3 +138,7 @@ leaves harmless no-ops. Plugins translate the decision back into the agent's own
 
 Hook config changes are additive: other tools' hooks are preserved, symlinked configs are written
 through, invalid JSON is refused, and a timestamped backup goes to `~/.orby/backups/` first.
+
+## License
+
+[MIT](LICENSE)
