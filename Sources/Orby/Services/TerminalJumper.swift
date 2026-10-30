@@ -110,10 +110,15 @@ enum TerminalJumper {
         run(target.cli, ["terminal", "switch", "--terminal", target.handle])
     }
 
+    /// The CLI bundled with the Orca app hosting the agent, else the one in /Applications.
+    static func orcaCLI(appPath: String?) -> String? {
+        let candidates = [appPath.map { $0 + "/Contents/Resources/bin/orca" }, "/Applications/Orca.app/Contents/Resources/bin/orca"]
+        return candidates.compactMap({ $0 }).first(where: FileManager.default.isExecutableFile)
+    }
+
     /// The Orca CLI and the `term_…` handle of the terminal hosting this tab/pane.
     static func orcaTerminal(tab: String?, pane: String?, appPath: String?) -> (cli: String, handle: String)? {
-        let candidates = [appPath.map { $0 + "/Contents/Resources/bin/orca" }, "/Applications/Orca.app/Contents/Resources/bin/orca"]
-        guard let cli = candidates.compactMap({ $0 }).first(where: FileManager.default.isExecutableFile),
+        guard let cli = orcaCLI(appPath: appPath),
             let out = run(cli, ["terminal", "list", "--json"]), let json = try? JSONValue.decode(Data(out.utf8))
         else { return nil }
         let paneID = pane?.split(separator: ":").last.map(String.init)

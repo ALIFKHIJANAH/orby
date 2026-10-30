@@ -18,8 +18,9 @@ optional Claude plan-limit request (and, if you turn it on, the quota check agy 
 
 ## Features
 
-- **Live sessions**: thinking / working / needs you / finished (thinking shows the latest reasoning line when the transcript has it, and the notch orb ponders with a thought bubble), current tool, last reply, context-window %, subagents,
-  grouped by project with git branch and worktree.
+- **Live sessions**: thinking / working / needs you / finished (thinking shows the latest reasoning line when the transcript has it, and the notch orb ponders with a thought bubble), current tool, last reply, context-window %, subagents
+  (each with its task and current tool), grouped by project with git branch and worktree. Orca orchestration
+  workers sit under the session that dispatched them.
 - **Task progress**: the agent's to-do list (Claude `TodoWrite`, Codex `update_plan`) as a bar and
   `3/7 · current item` on its session row.
 - **Approvals from the notch**: Allow (⌘Y), Deny (⌘N), Always allow (Claude's own suggested rule),

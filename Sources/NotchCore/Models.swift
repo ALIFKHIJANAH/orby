@@ -81,6 +81,8 @@ public struct TerminalContext: Codable, Hashable, Sendable {
     public var orcaTabID: String?
     /// "<tabId>:<paneId>" from ORCA_AGENT_PANE.
     public var orcaPane: String?
+    /// The `term_…` handle Orca's orchestration uses for this terminal.
+    public var orcaTerminal: String?
     public var agentPID: Int32?
 
     public init() {}
@@ -98,6 +100,7 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         weztermPane = env["WEZTERM_PANE"]
         orcaTabID = env["ORCA_TAB_ID"]
         orcaPane = env["ORCA_AGENT_PANE"]
+        orcaTerminal = env["ORCA_TERMINAL_HANDLE"]
         tty = envelope.tty
         agentPID = envelope.agentPID
         appBundlePath = envelope.processChain.lazy.compactMap { $0.path.flatMap(ProcessTree.outermostAppBundle) }.first
@@ -121,6 +124,7 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         m.weztermPane = weztermPane ?? old.weztermPane
         m.orcaTabID = orcaTabID ?? old.orcaTabID
         m.orcaPane = orcaPane ?? old.orcaPane
+        m.orcaTerminal = orcaTerminal ?? old.orcaTerminal
         m.agentPID = agentPID ?? old.agentPID
         return m
     }
@@ -148,7 +152,9 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
     public var model: String?
     public var contextTokens: Int?
     public var contextLimit: Int?
-    public var activeSubagents: Int
+    /// Subagents running for this session, oldest first.
+    public var subagents: [Subagent] = []
+    public var activeSubagents: Int { subagents.count }
     public var terminal: TerminalContext
     public var transcriptPath: String?
     /// Set when a turn finishes and cleared once the user looks at it.
@@ -168,7 +174,6 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
         self.phase = .ready
         self.startedAt = now
         self.updatedAt = now
-        self.activeSubagents = 0
         self.terminal = TerminalContext()
         self.unread = false
     }
@@ -180,6 +185,28 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
     public var contextPercent: Double? {
         guard let used = contextTokens, let limit = contextLimit, limit > 0 else { return nil }
         return min(1, Double(used) / Double(limit))
+    }
+}
+
+/// A helper agent a session started: Claude's Agent tool, an OpenCode child session, ...
+public struct Subagent: Identifiable, Hashable, Sendable {
+    /// The hook's `agent_id`, or "#n" when the agent's hooks don't name its subagents.
+    public var id: String
+    /// `agent_type`, e.g. "Explore".
+    public var type: String?
+    /// What it was asked to do (Claude: the Agent tool's description).
+    public var task: String?
+    /// The tool call in progress; nil while it reasons.
+    public var activity: Activity?
+    public var startedAt: Date
+    public var updatedAt: Date
+
+    public init(id: String, type: String? = nil, task: String? = nil, now: Date) {
+        self.id = id
+        self.type = type
+        self.task = task
+        self.startedAt = now
+        self.updatedAt = now
     }
 }
 

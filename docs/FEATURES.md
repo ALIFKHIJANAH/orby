@@ -40,7 +40,7 @@ agent (claude, codex, …)
 | Current tool line (`$ npm test`, `Edit App.swift`) | ✅ | ✅ | ✅ |
 | Group by project, branches + git worktrees | ◐ | ✅ | ✅ (reads `.git`, worktrees grouped under main repo) |
 | Context-window % per session | ✅ | ✅ | ✅ |
-| Subagent count | ✅ | — | ✅ |
+| Subagents | ✅ (count) | — | ✅ each subagent on its parent's row: type, task, current tool, time running (Claude `agent_id` hooks + `subagents/*.meta.json`); Orca orchestration workers nested under the session that dispatched them, titled by task |
 | Task checklist / goal progress | ✅ | ✅ | ✅ (Claude `TodoWrite`, Codex `update_plan`; bar + `3/7 · current item` on the session row) |
 | **Approve / deny from the notch** | ✅ | ✅ | ✅ (Allow, Deny, Always allow from suggestions, hand back to terminal) |
 | Trust a session: auto-allow its safe requests for N min | ? | ? | ✅ ("Allow, and trust this session" on the card, or the row's menu; anything flagged risky, questions and plans still ask; shield badge while trusted) |
