@@ -44,6 +44,13 @@ enum PreviewRenderer {
             ("expanded-question-multi", 600, { m in working(m, repo); multiQuestion(m, repo); m.expand(.attention) }),
             ("expanded-plan", 700, { m in working(m, repo); plan(m, repo); m.expand(.attention) }),
             ("expanded-usage", 680, { m in working(m, repo); sampleUsage(m); m.expand(.click); m.tab = .usage }),
+            ("expanded-empty", 260, { m in m.expand(.click) }),
+            ("expanded-new-agent", 360, { m in
+                working(m, repo)
+                m.previewCompose(
+                    LaunchDraft(agent: .claude, folder: repo, terminal: .orca, prompt: "Add a dark mode toggle to the settings page"),
+                    worktrees: [OrcaWorktree(path: repo, branch: "feat/login")])
+            }),
         ]
         for (name, height, setup) in scenarios {
             let model = IslandModel()

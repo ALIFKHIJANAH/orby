@@ -17,6 +17,17 @@ public struct OrcaWorker: Hashable, Sendable {
     }
 }
 
+/// A checkout Orca knows, where it can open a terminal.
+public struct OrcaWorktree: Hashable, Sendable {
+    public var path: String
+    public var branch: String?
+
+    public init(path: String, branch: String?) {
+        self.path = path
+        self.branch = branch
+    }
+}
+
 /// Reads `orca orchestration` output and nests worker sessions under the session that started them.
 public enum OrcaFleet {
     public struct Dispatch: Hashable, Sendable {
@@ -51,6 +62,20 @@ public enum OrcaFleet {
             out[id] = TaskInfo(parent: parent, title: title)
         }
         return out
+    }
+
+    /// `worktree list --json`, without archived or bare checkouts.
+    public static func worktrees(_ json: JSONValue) -> [OrcaWorktree] {
+        (json["result"]?["worktrees"]?.array ?? []).compactMap { w in
+            guard let path = w["path"]?.string, !path.isEmpty, w["isArchived"]?.bool != true, w["isBare"]?.bool != true else { return nil }
+            let branch = w["branch"]?.string.map { $0.hasPrefix("refs/heads/") ? String($0.dropFirst(11)) : $0 }
+            return OrcaWorktree(path: path, branch: branch)
+        }
+    }
+
+    /// The worktree holding `dir`, the innermost when checkouts nest.
+    public static func worktree(containing dir: String, in worktrees: [OrcaWorktree]) -> OrcaWorktree? {
+        worktrees.filter { dir == $0.path || dir.hasPrefix($0.path + "/") }.max { $0.path.count < $1.path.count }
     }
 
     /// Splits sessions into top-level rows and the workers listed under each session (by session id).

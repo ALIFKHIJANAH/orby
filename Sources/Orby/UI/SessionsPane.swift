@@ -5,6 +5,8 @@ import SwiftUI
 struct SessionsPane: View {
     @EnvironmentObject var model: IslandModel
     var maxHeight: CGFloat = 440
+    /// Room under the last row for the floating new-agent button.
+    var reservesButton = false
 
     var body: some View {
         if model.sessions.isEmpty {
@@ -18,6 +20,7 @@ struct SessionsPane: View {
                         ProjectGroup(name: group.name, sessions: group.sessions, workers: nested.children)
                     }
                 }
+                .padding(.bottom, reservesButton ? 40 : 0)
             }
         }
     }
@@ -449,6 +452,7 @@ struct BranchChip: View {
 }
 
 private struct EmptyState: View {
+    @EnvironmentObject var model: IslandModel
     @State private var integrations = IntegrationStatus.current()
 
     var body: some View {
@@ -460,13 +464,17 @@ private struct EmptyState: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.secondaryText)
             Text(integrations.anyInstalled
-                ? "Start Claude Code or Codex in any terminal. Sessions appear here."
+                ? "Run Claude Code or Codex in any terminal, or start one here."
                 : "Connect your agents in Settings → Integrations to get started.")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.tertiaryText)
                 .multilineTextAlignment(.center)
             if !integrations.anyInstalled {
                 Button("Open Settings") { SettingsWindowController.shared.show(tab: .integrations) }
+                    .buttonStyle(PillButtonStyle(tint: Theme.working))
+                    .padding(.top, 4)
+            } else {
+                Button { model.startNewAgent() } label: { Label("New agent", systemImage: "square.and.pencil") }
                     .buttonStyle(PillButtonStyle(tint: Theme.working))
                     .padding(.top, 4)
             }

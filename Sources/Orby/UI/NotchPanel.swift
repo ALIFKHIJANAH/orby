@@ -70,6 +70,11 @@ final class NotchPanelController {
         model.shapeSizeChanged.map { _ in }.merge(with: model.$expansion.map { _ in })
             .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouse(at: NSEvent.mouseLocation) } }
             .store(in: &cancellables)
+        // The launcher takes typing straight away, even when opened by its shortcut from another
+        // app. The panel doesn't activate Orby, so that app stays in front.
+        model.$composing.filter { $0 }
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.panel.makeKey() } }
+            .store(in: &cancellables)
 
         let moved: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         monitors.append(NSEvent.addGlobalMonitorForEvents(matching: moved) { [weak self] _ in
@@ -143,7 +148,7 @@ final class NotchPanelController {
         } else {
             hoverWork?.cancel()
             model.mouseExited()
-            if panel.isKeyWindow { panel.resignKey() }
+            if panel.isKeyWindow, !model.composing { panel.resignKey() }
         }
     }
 }
