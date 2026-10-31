@@ -6,6 +6,8 @@ import NotchShared
 /// Why the panel is open; decides when it may close on its own.
 enum ExpansionReason: Equatable {
     case hover, click, attention, completion
+    /// The new-agent launcher: stays open when the mouse leaves, since you may be typing.
+    case compose
 }
 
 enum IslandTab: String {
@@ -57,6 +59,18 @@ final class IslandModel: ObservableObject {
     private var orcaQueue: [String: Int] = [:]
     private var orcaLookup: Task<Void, Never>?
     private let orcaFleet = OrcaFleetWatcher()
+    /// The new-agent launcher is open in place of the session list. The draft outlives a collapse,
+    /// so a stray click outside doesn't lose the prompt.
+    @Published private(set) var composing = false {
+        didSet { if composing != oldValue { updateHotKeys() } }
+    }
+    @Published var launchDraft = LaunchDraft()
+    @Published private(set) var launching = false
+    @Published private(set) var launchError: String?
+    /// Checkouts Orca can open a terminal in, for the launcher's folder menu.
+    @Published private(set) var orcaWorktrees: [OrcaWorktree] = []
+    /// An agent just started from the notch; its first event highlights its row.
+    private var awaitingLaunch: (folder: String, agent: AgentKind, at: Date)?
     /// Sessions already warned that their context is almost full (cleared once it drops again).
     private var contextWarned: Set<String> = []
     /// Requests whose reminder cue has played.
@@ -87,7 +101,11 @@ final class IslandModel: ObservableObject {
         // Settings such as the idle-hide delay apply right away, not on the next agent event.
         prefsObserver = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.updateIdleTab() }
+            .sink { [weak self] _ in
+                self?.updateIdleTab()
+                self?.updateLaunchHotKey()
+            }
+        updateLaunchHotKey()
         // No hooks fire while the model reasons, so poll the transcript for its thoughts.
         thinkingTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
             Task { @MainActor [weak self] in
@@ -113,6 +131,7 @@ final class IslandModel: ObservableObject {
             return
         }
         let before = Set(engine.pending.map(\.id))
+        let known = Set(engine.sessions.keys)
         var outcome = engine.handle(envelope)
         logNewExternalPrompts(since: before)
 
@@ -144,10 +163,108 @@ final class IslandModel: ObservableObject {
         if let key = outcome.sessionKey, let s = engine.sessions[key] {
             if let handle = s.terminal.orcaTerminal { checkOrcaTerminal(handle, appPath: s.terminal.appBundlePath) }
             if let id = outcome.startedSubagent { loadSubagentMeta(id, in: key) }
+            if !known.contains(key) { spotLaunched(s) }
         }
         if let cue = outcome.cue { sound.play(cue) }
         if let reveal = outcome.reveal { handleReveal(reveal) }
         publish()
+    }
+
+    // MARK: Starting an agent
+
+    /// Open the launcher. An unfinished draft comes back as it was; otherwise it starts from the
+    /// defaults in Settings and the agent used last.
+    func startNewAgent() {
+        if launchDraft.prompt.isEmpty || launchDraft.folder.isEmpty { launchDraft = freshDraft() }
+        launchError = nil
+        tab = .sessions
+        composing = true
+        expand(.compose)
+        guard !PreviewRenderer.active, LaunchTerminal.orca.isInstalled else { return }
+        Task { orcaWorktrees = await orcaFleet.worktrees(appPath: nil) }
+    }
+
+    /// Back to the list, or with `close` (Esc, the shortcut again) out of the notch.
+    func cancelCompose(close: Bool = false) {
+        composing = false
+        launchError = nil
+        if close {
+            collapse()
+        } else if expansion == .compose {
+            expansion = .click
+        }
+    }
+
+    func launch() {
+        let draft = launchDraft
+        guard !launching, !draft.folder.isEmpty else { return }
+        launching = true
+        launchError = nil
+        Task {
+            // A quick Return can beat the worktree list the launcher asked for as it opened.
+            if draft.terminal == .orca, orcaWorktrees.isEmpty { orcaWorktrees = await orcaFleet.worktrees(appPath: nil) }
+            let worktree = OrcaFleet.worktree(containing: draft.folder, in: orcaWorktrees)
+            // Orca can only open a terminal in a checkout it knows.
+            let terminal = draft.terminal == .orca && worktree == nil ? .terminal : draft.terminal
+            let error = await Task.detached(priority: .userInitiated) {
+                AgentLauncher.launch(draft.agent, folder: draft.folder, prompt: draft.prompt, in: terminal, orcaWorktree: worktree)
+            }.value
+            launched(draft, error: error)
+        }
+    }
+
+    private func launched(_ draft: LaunchDraft, error: String?) {
+        launching = false
+        if let error {
+            launchError = error
+            return
+        }
+        RequestLog.write("launched-from-notch(\(draft.agent.rawValue))", id: "-")
+        let d = Prefs.defaults
+        let recents = AgentLaunch.remember(draft.folder, in: Prefs.lines(d.string(forKey: PrefKey.recentFolders) ?? ""))
+        d.set(recents.joined(separator: "\n"), forKey: PrefKey.recentFolders)
+        d.set(draft.agent.rawValue, forKey: PrefKey.launchAgent)
+        awaitingLaunch = (draft.folder, draft.agent, Date())
+        launchDraft.prompt = ""
+        composing = false
+        if pending.isEmpty { collapse() } else { expansion = .attention }
+    }
+
+    /// A new session in the folder an agent was just started in is that agent: mark its row.
+    private func spotLaunched(_ s: AgentSession) {
+        guard let a = awaitingLaunch else { return }
+        guard Date().timeIntervalSince(a.at) < 60 else { return awaitingLaunch = nil }
+        let dirs = [s.cwd, s.git?.worktreeRoot].compactMap { $0 }
+        guard s.agent == a.agent, dirs.contains(where: { $0 == a.folder || $0.hasPrefix(a.folder + "/") }) else { return }
+        highlightedSession = s.id
+        awaitingLaunch = nil
+    }
+
+    private func freshDraft() -> LaunchDraft {
+        let d = Prefs.defaults
+        let newest = sessions.max { $0.updatedAt < $1.updatedAt }.map { $0.git?.worktreeRoot ?? $0.cwd }
+        let candidates = [d.string(forKey: PrefKey.launchFolder), Prefs.lines(d.string(forKey: PrefKey.recentFolders) ?? "").first, newest]
+        let folder = candidates.compactMap { $0 }.first { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }
+        return LaunchDraft(
+            agent: d.string(forKey: PrefKey.launchAgent).flatMap(AgentKind.init(rawValue:)).flatMap { AgentLaunch.agents.contains($0) ? $0 : nil } ?? .claude,
+            folder: folder ?? NSHomeDirectory(),
+            terminal: LaunchTerminal.preferred)
+    }
+
+    /// Folders for the launcher's menu: recent launches, then the live sessions' checkouts.
+    var launchFolders: [String] {
+        var seen: Set<String> = []
+        let recent = Prefs.lines(Prefs.defaults.string(forKey: PrefKey.recentFolders) ?? "")
+        let live = sessions.sorted { $0.updatedAt > $1.updatedAt }.map { $0.git?.worktreeRoot ?? $0.cwd }
+        return (recent + live).filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// Preview renderer only.
+    func previewCompose(_ draft: LaunchDraft, worktrees: [OrcaWorktree]) {
+        orcaWorktrees = worktrees
+        launchDraft = draft
+        composing = true
+        expand(.compose)
     }
 
     // MARK: Subagents and Orca workers
@@ -551,7 +668,8 @@ final class IslandModel: ObservableObject {
         if debug { NSLog("Orby: expand(\(reason))") }
         collapseWork?.cancel()
         clearHeadphoneBanner()
-        if expansion == nil || reason == .attention { expansion = reason }
+        // A request arriving while you type in the launcher waits behind it (the header counts it).
+        if expansion == nil || reason == .compose || reason == .attention && expansion != .compose { expansion = reason }
         if reason == .hover || reason == .click { mouseHasEntered = true }
         updateHotKeys()
     }
@@ -560,6 +678,7 @@ final class IslandModel: ObservableObject {
         if debug, expansion != nil { NSLog("Orby: collapse") }
         collapseWork?.cancel()
         expansion = nil
+        composing = false
         highlightedSession = nil
         peekSessions = false
         mouseHasEntered = false
@@ -573,7 +692,7 @@ final class IslandModel: ObservableObject {
     func mouseExited() {
         hovering = false
         guard let reason = expansion else { return }
-        if reason == .attention && !mouseHasEntered { return }
+        if reason == .attention && !mouseHasEntered || reason == .compose { return }
         scheduleCollapse(after: 0.35)
     }
 
@@ -674,8 +793,20 @@ final class IslandModel: ObservableObject {
 
     // MARK: Shortcuts
 
+    /// ⌥⌘N, from any app: open the launcher, or close it again.
+    private func updateLaunchHotKey() {
+        let hk = HotKeyCenter.shared
+        guard Prefs.bool(PrefKey.newAgentShortcut), !PreviewRenderer.active else { return hk.unregister(id: HotKeyID.newAgent) }
+        hk.register(id: HotKeyID.newAgent, keyCode: KeyCodes.n, modifiers: KeyCodes.command | KeyCodes.option) { [weak self] in
+            guard let self else { return }
+            if self.composing && self.isExpanded { self.cancelCompose(close: true) } else { self.startNewAgent() }
+        }
+    }
+
     private func updateHotKeys() {
         let hk = HotKeyCenter.shared
+        // Behind the launcher a request isn't on screen, and ⌘N must not deny it while you type.
+        let isExpanded = isExpanded && !composing
         if isExpanded, currentRequest?.kind == .permission {
             hk.register(id: HotKeyID.allow, keyCode: KeyCodes.y, modifiers: KeyCodes.command) { [weak self] in self?.allowCurrent() }
             hk.register(id: HotKeyID.deny, keyCode: KeyCodes.n, modifiers: KeyCodes.command) { [weak self] in self?.denyCurrent() }

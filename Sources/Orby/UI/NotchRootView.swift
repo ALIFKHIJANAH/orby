@@ -277,7 +277,7 @@ struct ExpandedView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            if model.tab == .sessions, let request = model.currentRequest, let session = model.session(for: request.sessionKey) {
+            if model.tab == .sessions, !model.composing, let request = model.currentRequest, let session = model.session(for: request.sessionKey) {
                 // Focus mode: the request owns the panel; other sessions wait in the strip.
                 RequestFocusView(request: request, session: session)
                     .id(request.id)
@@ -287,7 +287,10 @@ struct ExpandedView: View {
             } else {
                 HeaderView()
                 switch model.tab {
-                case .sessions: SessionsPane()
+                case .sessions where model.composing: NewAgentView()
+                case .sessions:
+                    // An empty list has its own button in the middle.
+                    SessionsPane(reservesButton: true).overlay(alignment: .bottomTrailing) { if !model.sessions.isEmpty { NewAgentButton() } }
                 case .usage: UsagePane()
                 }
             }

@@ -29,6 +29,10 @@ optional Claude plan-limit request (and, if you turn it on, the quota check agy 
   Anything Orby flags as risky, questions and plans still ask. Duration in Settings → General → Agents.
 - **Reply and stop**: type a reply to a finished or waiting session, or stop a working one (sends Esc).
   Works in tmux, iTerm2 and Orca panes; Terminal.app supports reply only.
+- **Start an agent**: the compose button under the list (or ⌥⌘N from any app) opens a launcher: pick
+  Claude Code, Codex, Antigravity or OpenCode, a folder and a terminal, type a first message, press
+  Return. Orca opens it in a new tab of the project; Terminal.app and iTerm2 in a new window. The
+  default terminal and folder are in Settings → General → New agent.
 - **Questions**: answer `AskUserQuestion` prompts: single or multi-select, several questions, free text.
 - **Plan review**: Markdown-rendered plan with Approve, Approve + auto-accept edits, or send feedback.
 - **Jump back**: click a session to focus its iTerm2 session, Terminal.app tab (by tty), tmux pane,

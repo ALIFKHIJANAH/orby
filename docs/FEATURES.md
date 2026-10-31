@@ -45,6 +45,7 @@ agent (claude, codex, …)
 | **Approve / deny from the notch** | ✅ | ✅ | ✅ (Allow, Deny, Always allow from suggestions, hand back to terminal) |
 | Trust a session: auto-allow its safe requests for N min | ? | ? | ✅ ("Allow, and trust this session" on the card, or the row's menu; anything flagged risky, questions and plans still ask; shield badge while trusted) |
 | Reply to / stop an agent from the notch | ? | ✅ (Reply) | ✅ reply to a finished or waiting session; Stop sends Esc to a working one (tmux, iTerm2, Orca; Terminal.app reply only) |
+| Start a new agent from the notch | — | — | ✅ compose button or ⌥⌘N: agent (Claude, Codex, Antigravity, OpenCode), folder (default, recent, Orca worktrees, any), terminal (Orca tab, Terminal.app or iTerm2 window), optional first message; the new row is highlighted when it arrives |
 | Keyboard shortcuts for approvals | ✅ ⌘Y/⌘N + configurable | — | ✅ ⌘Y / ⌘N while a request is open |
 | Answer AskUserQuestion (single, multi-select, multiple questions, free text) | ✅ | ✅ (Reply) | ✅ |
 | Plan review with Markdown + feedback | ✅ | ✅ (plan ready alert) | ✅ (Approve, Approve + auto-edit, send feedback) |

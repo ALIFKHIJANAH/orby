@@ -43,6 +43,15 @@ enum PrefKey {
     static let quietHoursEnabled = "quietHoursEnabled"
     static let quietHoursStart = "quietHoursStart"
     static let quietHoursEnd = "quietHoursEnd"
+    /// Starting an agent from the notch: the terminal picked by default (a `LaunchTerminal`),
+    /// the default folder ("" = none), and the agent used last.
+    static let launchTerminal = "launchTerminal"
+    static let launchFolder = "launchFolder"
+    static let launchAgent = "launchAgent"
+    /// Folders agents were started in from the notch, newest first, one per line.
+    static let recentFolders = "recentFolders"
+    /// ⌥⌘N opens the new-agent launcher from any app.
+    static let newAgentShortcut = "newAgentShortcut"
     static func soundEnabled(_ cue: SoundCue) -> String { "sound.\(cue.rawValue)" }
 }
 
@@ -103,6 +112,9 @@ enum Prefs {
             PrefKey.quietHoursEnabled: false,
             PrefKey.quietHoursStart: 22,
             PrefKey.quietHoursEnd: 8,
+            PrefKey.launchFolder: "",
+            PrefKey.recentFolders: "",
+            PrefKey.newAgentShortcut: true,
         ]
         for cue in SoundCue.allCases { values[PrefKey.soundEnabled(cue)] = cue != .start }
         defaults.register(defaults: values)

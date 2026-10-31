@@ -23,6 +23,17 @@ actor OrcaFleetWatcher {
         return out
     }
 
+    private var worktreeCache: (at: Date, list: [OrcaWorktree])?
+
+    /// Checkouts Orca can open a terminal in, cached for a minute (the launcher asks each time it opens).
+    func worktrees(appPath: String?) -> [OrcaWorktree] {
+        if let c = worktreeCache, Date().timeIntervalSince(c.at) < 60 { return c.list }
+        guard let cli = TerminalJumper.orcaCLI(appPath: appPath), let json = Self.json(cli, ["worktree", "list", "--json"]) else { return [] }
+        let list = OrcaFleet.worktrees(json)
+        worktreeCache = (Date(), list)
+        return list
+    }
+
     private static func json(_ cli: String, _ args: [String]) -> JSONValue? {
         TerminalJumper.run(cli, args).flatMap { try? JSONValue.decode(Data($0.utf8)) }
     }
