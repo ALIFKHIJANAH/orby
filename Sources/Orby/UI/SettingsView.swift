@@ -95,6 +95,9 @@ private struct GeneralSettings: View {
     @AppStorage(PrefKey.panelWidth) private var panelWidth = 560.0
     @AppStorage(PrefKey.trustMinutes) private var trustMinutes = 30.0
     @AppStorage(PrefKey.reminderMinutes) private var reminderMinutes = 0.0
+    @AppStorage(PrefKey.launchTerminal) private var launchTerminal = LaunchTerminal.preferred.rawValue
+    @AppStorage(PrefKey.launchFolder) private var launchFolder = ""
+    @AppStorage(PrefKey.newAgentShortcut) private var newAgentShortcut = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -164,6 +167,27 @@ private struct GeneralSettings: View {
             Text("A trusted session's requests are allowed without asking, except anything Orby flags as risky (deleting files, force-pushing, sudo, secrets…). Questions and plans always ask.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        Section {
+            Picker("Open new agents in", selection: $launchTerminal) {
+                ForEach(LaunchTerminal.available) { Text($0.label).tag($0.rawValue) }
+            }
+            LabeledContent("Default folder") {
+                HStack {
+                    Text(launchFolder.isEmpty ? "The last one used" : FolderPicker.abbreviate(launchFolder))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("Choose…") { if let path = FolderPicker.choose(from: launchFolder) { launchFolder = path } }
+                    if !launchFolder.isEmpty { Button("Clear") { launchFolder = "" } }
+                }
+            }
+            Toggle("⌥⌘N opens the launcher from any app", isOn: $newAgentShortcut)
+        } header: {
+            Text("New agent")
+        } footer: {
+            Text("Start an agent with the compose button under the session list. Orca opens it in a new tab when the folder is one of its projects; other folders open in Terminal.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         Section("Display") {
             Picker("Show on", selection: $display) {
                 ForEach(DisplayChoice.allCases) { Text($0.label).tag($0.rawValue) }
@@ -177,7 +201,8 @@ private struct GeneralSettings: View {
         Section("Shortcuts") {
             LabeledContent("Allow request", value: "⌘Y")
             LabeledContent("Deny request", value: "⌘N")
-            Text("Active only while a permission request is open in the notch.").font(.caption).foregroundStyle(.secondary)
+            LabeledContent("New agent", value: newAgentShortcut ? "⌥⌘N" : "Off")
+            Text("Allow and deny work only while a permission request is open in the notch.").font(.caption).foregroundStyle(.secondary)
         }
     }
 }

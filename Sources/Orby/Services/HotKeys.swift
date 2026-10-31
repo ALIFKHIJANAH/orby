@@ -2,7 +2,8 @@ import Carbon.HIToolbox
 import Foundation
 
 /// System-wide shortcuts via Carbon hot keys (no Accessibility permission needed).
-/// Registered only while a request is on screen so ⌘Y/⌘N aren't stolen otherwise.
+/// The request keys are registered only while a request is on screen so ⌘Y/⌘N aren't stolen
+/// otherwise; ⌥⌘N (new agent) stays registered while its setting is on.
 @MainActor
 final class HotKeyCenter {
     static let shared = HotKeyCenter()
@@ -53,6 +54,7 @@ private func hotKeyCallback(_: EventHandlerCallRef?, event: EventRef?, _: Unsafe
 enum HotKeyID {
     static let allow: UInt32 = 1
     static let deny: UInt32 = 2
+    static let newAgent: UInt32 = 3
     /// ⌘1…⌘9 pick question options; ids 11…19.
     static func option(_ index: Int) -> UInt32 { UInt32(11 + index) }
 }
@@ -61,5 +63,6 @@ enum KeyCodes {
     static let y = kVK_ANSI_Y
     static let n = kVK_ANSI_N
     static let command = cmdKey
+    static let option = optionKey
     static let digits = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
 }

@@ -19,11 +19,9 @@ public enum StatusLineInstaller {
         let bridge = "$HOME/.orby/bin/orby-bridge"
         let run = "exec \"\(bridge)\" --statusline --source antigravity"
         guard let original, !original.isEmpty else { return "[ -x \"\(bridge)\" ] && \(run) || cat >/dev/null" }
-        let quoted = shellQuote(original)
+        let quoted = Shell.quote(original)
         return "[ -x \"\(bridge)\" ] && \(run) --wrap \(quoted) || sh -c \(quoted)"
     }
-
-    static func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
     /// The command passed to `--wrap` in one of our status lines, read back from its shell quoting.
     static func wrappedCommand(in command: String) -> String? {
