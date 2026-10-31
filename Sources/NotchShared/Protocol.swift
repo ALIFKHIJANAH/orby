@@ -79,8 +79,8 @@ public let terminalEnvKeys: [String] = [
     "TMUX", "TMUX_PANE", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET",
     "GHOSTTY_RESOURCES_DIR", "WARP_TERMINAL_SESSION_UUID", "ZELLIJ", "ZELLIJ_SESSION_NAME",
     "__CFBundleIdentifier", "VSCODE_PID", "CURSOR_TRACE_ID",
-    // Orca: which tab/pane hosts the agent, for `orca terminal switch`.
-    "ORCA_TAB_ID", "ORCA_AGENT_PANE",
+    // Orca: which tab/pane hosts the agent, for `orca terminal switch`; the handle links orchestration workers.
+    "ORCA_TAB_ID", "ORCA_AGENT_PANE", "ORCA_TERMINAL_HANDLE",
 ]
 
 public let wireJSONEncoder: JSONEncoder = {

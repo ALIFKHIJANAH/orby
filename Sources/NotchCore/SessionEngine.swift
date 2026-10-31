@@ -26,6 +26,8 @@ public struct SessionEngine: Sendable {
         public var cancelledRequests: [String] = []
         /// Transcript tail worth re-reading (turn ended, compaction finished, ...).
         public var refreshTranscript = false
+        /// A subagent appeared whose launch details may be on disk (Claude's subagents/*.meta.json).
+        public var startedSubagent: String?
     }
 
     public init() {}
@@ -47,6 +49,8 @@ public struct SessionEngine: Sendable {
         let key = Self.sessionKey(source: agent.rawValue, sessionID: sid)
         out.sessionKey = key
         let event = p["hook_event_name"]?.string ?? env.eventName
+        // Subagent id when a subagent sent this event; "" for the main agent.
+        let scope = p["agent_id"]?.string ?? ""
 
         if event == "SessionEnd" {
             out.cancelledRequests = remove(sessionKey: key)
@@ -87,10 +91,15 @@ public struct SessionEngine: Sendable {
             // A new tool only starts once the previous permission was settled (in the notch or
             // the terminal), so older requests from this agent are stale.
             // Antigravity's hook and its prompt for the same step can arrive in either order.
-            let scope = p["agent_id"]?.string ?? ""
             let step = p["step_idx"]?.int
             out.cancelledRequests = cancelPending {
                 $0.sessionKey == key && $0.agentScope == scope && $0.receivedAt < now && (step == nil || $0.step != step)
+            }
+            // A subagent's tool is its own; the main agent is still waiting on it or doing its own work.
+            if !scope.isEmpty {
+                let tool = activity(p)
+                touchSubagent(scope, p, in: &s, now: now, out: &out) { $0.activity = tool }
+                break
             }
             s.phase = .working
             s.activity = activity(p)
@@ -111,7 +120,9 @@ public struct SessionEngine: Sendable {
             out.cancelledRequests = cancelPending {
                 $0.sessionKey == key && $0.toolName == tool && (input == nil || $0.toolInput == input)
             }
-            if !hasPending(key) {
+            if !scope.isEmpty {
+                touchSubagent(scope, p, in: &s, now: now, out: &out) { $0.activity = nil }
+            } else if !hasPending(key) {
                 // Tool finished; the model is reasoning about the result until its next call.
                 s.phase = .thinking
                 s.activity = nil
@@ -131,7 +142,6 @@ public struct SessionEngine: Sendable {
             if env.expectsReply {
                 // An agent shows one permission prompt at a time: a new request supersedes any
                 // older one still listed, which would otherwise take clicks meant for this one.
-                let scope = p["agent_id"]?.string ?? ""
                 out.cancelledRequests = cancelPending { $0.sessionKey == key && $0.agentScope == scope }
                 var request = PendingRequest(
                     id: env.id, sessionKey: key, kind: kind, toolName: tool, toolInput: input,
@@ -150,6 +160,7 @@ public struct SessionEngine: Sendable {
             let activity = ToolDescriber.activity(tool: tool, input: input)
             s.activity = activity
             s.attention = kind == .permission ? "Wants to \(activity.intent)" : activity.progressive
+            if !scope.isEmpty { touchSubagent(scope, p, in: &s, now: now, out: &out) { $0.activity = activity } }
             out.cue =
                 switch kind {
                 case .question: .question
@@ -177,7 +188,8 @@ public struct SessionEngine: Sendable {
             s.activity = nil
             s.attention = nil
             s.thinking = nil
-            s.activeSubagents = 0
+            // Background subagents that outlive the turn come back with their next tool call.
+            s.subagents = []
             s.unread = true
             out.cancelledRequests = cancelPending { $0.sessionKey == key }
             out.cue = .done
@@ -191,9 +203,14 @@ public struct SessionEngine: Sendable {
             out.reveal = .attention(key)
 
         case "SubagentStart":
-            s.activeSubagents += 1
+            // Agents that don't name their subagents get a placeholder id, so the count still adds up.
+            let used = s.subagents.compactMap { $0.id.hasPrefix("#") ? Int($0.id.dropFirst()) : nil }
+            let id = scope.isEmpty ? "#\((used.max() ?? 0) + 1)" : scope
+            touchSubagent(id, p, in: &s, now: now, out: &out) { _ in }
         case "SubagentStop":
-            s.activeSubagents = max(0, s.activeSubagents - 1)
+            if let i = scope.isEmpty ? s.subagents.indices.first : s.subagents.firstIndex(where: { $0.id == scope }) {
+                s.subagents.remove(at: i)
+            }
 
         case "PreCompact":
             s.phase = .compacting
@@ -212,6 +229,27 @@ public struct SessionEngine: Sendable {
     private func activity(_ p: JSONValue) -> Activity? {
         guard let tool = p["tool_name"]?.string else { return nil }
         return ToolDescriber.activity(tool: tool, input: p["tool_input"] ?? .object([:]))
+    }
+
+    /// Update subagent `id`, adding it first if this is the first we hear of it.
+    private func touchSubagent(
+        _ id: String, _ p: JSONValue, in s: inout AgentSession, now: Date, out: inout Outcome, _ update: (inout Subagent) -> Void
+    ) {
+        let i = s.subagents.firstIndex { $0.id == id } ?? {
+            s.subagents.append(Subagent(id: id, now: now))
+            out.startedSubagent = id
+            return s.subagents.count - 1
+        }()
+        if let type = p["agent_type"]?.string, !type.isEmpty { s.subagents[i].type = type }
+        s.subagents[i].updatedAt = now
+        update(&s.subagents[i])
+    }
+
+    /// Launch details read after the fact (Claude writes them beside the transcript).
+    public mutating func describeSubagent(_ id: String, in sessionKey: String, type: String?, task: String?) {
+        guard let i = sessions[sessionKey]?.subagents.firstIndex(where: { $0.id == id }) else { return }
+        if let type { sessions[sessionKey]?.subagents[i].type = type }
+        if let task { sessions[sessionKey]?.subagents[i].task = task }
     }
 
     // MARK: External prompts (Antigravity)
@@ -331,7 +369,7 @@ public struct SessionEngine: Sendable {
         s.activity = nil
         s.attention = nil
         s.thinking = nil
-        s.activeSubagents = 0
+        s.subagents = []
         s.updatedAt = now
         sessions[key] = s
         return cancelPending { $0.sessionKey == key }

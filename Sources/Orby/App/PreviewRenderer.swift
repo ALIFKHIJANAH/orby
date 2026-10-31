@@ -35,6 +35,8 @@ enum PreviewRenderer {
                 m.trust(sessionKey: "codex:b")
                 m.expand(.click)
             }),
+            // Without other sessions: an overflowing list scrolls, and ImageRenderer draws scroll views blank.
+            ("expanded-subagents", 600, { m in subagents(m, repo); m.expand(.click) }),
             ("expanded-permission", 520, { m in working(m, repo); codexWaiting(m); permission(m, repo); m.expand(.attention) }),
             ("expanded-edit", 560, { m in working(m, repo); editRequest(m, repo); m.expand(.attention) }),
             ("expanded-antigravity", 440, { m in working(m, repo); antigravityPrompt(m) }),
@@ -102,8 +104,11 @@ enum PreviewRenderer {
         }
     }
 
-    private static func send(_ m: IslandModel, _ payload: JSONValue, source: String = "claude", reply: Bool = false) {
-        m.receive(BridgeEnvelope(source: source, payload: payload, env: ["TERM_PROGRAM": "iTerm.app"], expectsReply: reply), connection: nil)
+    private static func send(
+        _ m: IslandModel, _ payload: JSONValue, source: String = "claude", reply: Bool = false, env: [String: String] = [:]
+    ) {
+        let env = env.merging(["TERM_PROGRAM": "iTerm.app"]) { own, _ in own }
+        m.receive(BridgeEnvelope(source: source, payload: payload, env: env, expectsReply: reply), connection: nil)
     }
 
     private static func makeFakeRepo() -> String {
@@ -139,6 +144,39 @@ enum PreviewRenderer {
         send(m, ["hook_event_name": "PreToolUse", "session_id": "a", "cwd": .string(repo), "tool_name": "TodoWrite", "tool_input": ["todos": todos]])
         send(m, ["hook_event_name": "PostToolUse", "session_id": "a", "cwd": .string(repo), "tool_name": "TodoWrite", "tool_input": ["todos": todos]])
         send(m, ["hook_event_name": "PreToolUse", "session_id": "a", "cwd": .string(repo), "tool_name": "Bash", "tool_input": ["command": "cd web && pnpm test auth --reporter=dot", "description": "Run the auth tests"]])
+    }
+
+    /// Session "a" waits on two Explore-style subagents; an Orca coordinator has two workers.
+    private static func subagents(_ m: IslandModel, _ repo: String) {
+        let a: [String: JSONValue] = ["session_id": "a", "cwd": .string(repo)]
+        func event(_ name: String, _ extra: [String: JSONValue]) -> JSONValue {
+            .object(a.merging(extra) { _, new in new }.merging(["hook_event_name": .string(name)]) { _, new in new })
+        }
+        send(m, event("UserPromptSubmit", ["prompt": "Fix the OAuth redirect loop on login"]))
+        send(m, event("PreToolUse", ["tool_name": "Agent", "tool_input": ["description": "Find where the session cookie is set", "subagent_type": "Explore"]]))
+        send(m, event("SubagentStart", ["agent_id": "s1", "agent_type": "Explore"]))
+        send(m, event("SubagentStart", ["agent_id": "s2", "agent_type": "general-purpose"]))
+        send(m, event("PreToolUse", ["agent_id": "s1", "agent_type": "Explore", "tool_name": "Grep", "tool_input": ["pattern": "setSession", "path": "web/src"]]))
+        m.previewDescribeSubagent("s1", in: "claude:a", task: "Find where the session cookie is set")
+        m.previewDescribeSubagent("s2", in: "claude:a", task: "Check the OAuth callback handler")
+
+        let shop: JSONValue = "/Users/me/shop-api"
+        send(m, ["hook_event_name": "UserPromptSubmit", "session_id": "o", "cwd": shop, "prompt": "Review both PRs with two workers"], env: ["ORCA_TERMINAL_HANDLE": "term_coord"])
+        send(m, ["hook_event_name": "PreToolUse", "session_id": "o", "cwd": shop, "tool_name": "Bash",
+                 "tool_input": ["command": "orca orchestration check --wait --types worker_done --json", "description": "Wait for the workers"]],
+             env: ["ORCA_TERMINAL_HANDLE": "term_coord"])
+        let brief = "You are a dispatched Orca worker. Task task_1, dispatch ctx_1. Read the preamble below."
+        for (sid, handle) in [("w1", "term_w1"), ("w2", "term_w2")] {
+            send(m, ["hook_event_name": "UserPromptSubmit", "session_id": .string(sid), "cwd": shop, "prompt": .string(brief)], env: ["ORCA_TERMINAL_HANDLE": handle])
+        }
+        send(m, ["hook_event_name": "PreToolUse", "session_id": "w1", "cwd": shop, "tool_name": "Read", "tool_input": ["file_path": "/Users/me/shop-api/src/restore.ts"]],
+             env: ["ORCA_TERMINAL_HANDLE": "term_w1"])
+        send(m, ["hook_event_name": "PreToolUse", "session_id": "w2", "cwd": shop, "tool_name": "Bash", "tool_input": ["command": "npm test", "description": "Run the tests"]],
+             env: ["ORCA_TERMINAL_HANDLE": "term_w2"])
+        m.previewSetOrcaWorkers([
+            OrcaWorker(handle: "term_w1", parent: "term_coord", task: "Review BE PR #146"),
+            OrcaWorker(handle: "term_w2", parent: "term_coord", task: "Review FE PR #105"),
+        ])
     }
 
     private static func thinking(_ m: IslandModel) {

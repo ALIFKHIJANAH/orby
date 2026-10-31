@@ -50,6 +50,13 @@ final class IslandModel: ObservableObject {
     /// Replies being typed into an agent's terminal, and why the last reply or stop didn't take.
     @Published private(set) var replying: Set<String> = []
     @Published private(set) var replyErrors: [String: String] = [:]
+    /// Orca orchestration workers by terminal handle, linked to the terminal that dispatched them.
+    @Published private(set) var orcaWorkers: [String: OrcaWorker] = [:]
+    /// Orca terminals already asked about, and those still waiting for an answer (handle → lookups tried).
+    private var orcaChecked: Set<String> = []
+    private var orcaQueue: [String: Int] = [:]
+    private var orcaLookup: Task<Void, Never>?
+    private let orcaFleet = OrcaFleetWatcher()
     /// Sessions already warned that their context is almost full (cleared once it drops again).
     private var contextWarned: Set<String> = []
     /// Requests whose reminder cue has played.
@@ -134,8 +141,64 @@ final class IslandModel: ObservableObject {
         }
 
         if let key = outcome.sessionKey { refreshTranscript(key, force: outcome.refreshTranscript) }
+        if let key = outcome.sessionKey, let s = engine.sessions[key] {
+            if let handle = s.terminal.orcaTerminal { checkOrcaTerminal(handle, appPath: s.terminal.appBundlePath) }
+            if let id = outcome.startedSubagent { loadSubagentMeta(id, in: key) }
+        }
         if let cue = outcome.cue { sound.play(cue) }
         if let reveal = outcome.reveal { handleReveal(reveal) }
+        publish()
+    }
+
+    // MARK: Subagents and Orca workers
+
+    /// Claude writes a subagent's type and description beside the session transcript as it starts it.
+    private func loadSubagentMeta(_ id: String, in key: String) {
+        guard let s = engine.sessions[key], s.agent == .claude, let transcript = s.transcriptPath else { return }
+        let path = SubagentMeta.path(transcript: transcript, agentID: id)
+        Task.detached(priority: .utility) {
+            var meta = SubagentMeta.read(path: path)
+            if meta == nil {
+                try? await Task.sleep(for: .seconds(1))
+                meta = SubagentMeta.read(path: path)
+            }
+            guard let meta else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.engine.describeSubagent(id, in: key, type: meta.type, task: meta.task)
+                self.publish()
+            }
+        }
+    }
+
+    /// Ask Orca once whether this terminal is an orchestration worker. The lookup waits a moment so
+    /// parallel worker starts share one call, then asks once more about terminals still unknown,
+    /// in case a worker's first hook beat its dispatch record.
+    private func checkOrcaTerminal(_ handle: String, appPath: String?) {
+        guard !PreviewRenderer.active, orcaChecked.insert(handle).inserted else { return }
+        orcaQueue[handle] = 0
+        guard orcaLookup == nil else { return }
+        orcaLookup = Task {
+            try? await Task.sleep(for: .seconds(1))
+            while !orcaQueue.isEmpty {
+                let asked = orcaQueue
+                let found = await orcaFleet.lookup(Set(asked.keys), appPath: appPath)
+                if !found.isEmpty { orcaWorkers.merge(found) { _, new in new } }
+                for (h, tries) in asked { orcaQueue[h] = found[h] != nil || tries >= 1 ? nil : tries + 1 }
+                if !orcaQueue.isEmpty { try? await Task.sleep(for: .seconds(5)) }
+            }
+            orcaLookup = nil
+        }
+    }
+
+    /// Preview renderer only.
+    func previewSetOrcaWorkers(_ workers: [OrcaWorker]) {
+        for w in workers { orcaWorkers[w.handle] = w }
+    }
+
+    /// Preview renderer only: the launch description Claude would have written to disk.
+    func previewDescribeSubagent(_ id: String, in key: String, task: String) {
+        engine.describeSubagent(id, in: key, type: nil, task: task)
         publish()
     }
 
@@ -401,6 +464,9 @@ final class IslandModel: ObservableObject {
         guard engine.sessions.count != before else { return }
         lastTranscriptRead = lastTranscriptRead.filter { engine.sessions[$0.key] != nil }
         transcripts = transcripts.filter { engine.sessions[$0.key] != nil }
+        let terminals = Set(engine.sessions.values.compactMap(\.terminal.orcaTerminal))
+        orcaChecked.formIntersection(terminals)
+        if orcaWorkers.keys.contains(where: { !terminals.contains($0) }) { orcaWorkers = orcaWorkers.filter { terminals.contains($0.key) } }
         publish()
     }
 

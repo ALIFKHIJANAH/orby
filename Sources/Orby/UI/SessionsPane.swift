@@ -10,10 +10,12 @@ struct SessionsPane: View {
         if model.sessions.isEmpty {
             EmptyState()
         } else {
+            // Orca workers sit under the session that dispatched them, not in the project list.
+            let nested = OrcaFleet.nest(model.sessions, workers: model.orcaWorkers)
             FittedScroll(maxHeight: maxHeight) {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(groups, id: \.name) { group in
-                        ProjectGroup(name: group.name, sessions: group.sessions)
+                    ForEach(groups(nested.top), id: \.name) { group in
+                        ProjectGroup(name: group.name, sessions: group.sessions, workers: nested.children)
                     }
                 }
             }
@@ -21,10 +23,10 @@ struct SessionsPane: View {
     }
 
     /// Group by project (main repo for worktrees), keeping the engine's priority order.
-    private var groups: [(name: String, sessions: [AgentSession])] {
+    private func groups(_ sessions: [AgentSession]) -> [(name: String, sessions: [AgentSession])] {
         var order: [String] = []
         var map: [String: [AgentSession]] = [:]
-        for s in model.sessions {
+        for s in sessions {
             if map[s.projectName] == nil { order.append(s.projectName) }
             map[s.projectName, default: []].append(s)
         }
@@ -85,6 +87,8 @@ struct SessionStrip: View {
 private struct ProjectGroup: View {
     let name: String
     let sessions: [AgentSession]
+    /// Orca workers by the id of the session that dispatched them.
+    let workers: [String: [AgentSession]]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -95,7 +99,29 @@ private struct ProjectGroup: View {
             }
             .foregroundStyle(Theme.tertiaryText)
             .padding(.leading, 4)
-            ForEach(sessions) { SessionRow(session: $0) }
+            ForEach(sessions) { SessionTree(session: $0, workers: workers) }
+        }
+    }
+}
+
+/// A session with the Orca workers it dispatched indented under it, and theirs under them.
+private struct SessionTree: View {
+    let session: AgentSession
+    let workers: [String: [AgentSession]]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            SessionRow(session: session)
+            if let children = workers[session.id], !children.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    // AnyView: a view can't contain its own type directly.
+                    ForEach(children) { AnyView(SessionTree(session: $0, workers: workers)) }
+                }
+                .padding(.leading, 14)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Theme.stroke).frame(width: 1).padding(.leading, 6)
+                }
+            }
         }
     }
 }
@@ -177,7 +203,7 @@ struct SessionRow: View {
             .padding(.leading, 4)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(session.title ?? session.projectName)
+                    Text(title)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.primaryText)
                         .lineLimit(1)
@@ -220,6 +246,7 @@ struct SessionRow: View {
                         .help(detail)
                 }
                 if let tasks = session.tasks, tasks.total > 0 { TaskProgressLine(tasks: tasks) }
+                if !session.subagents.isEmpty { SubagentLines(subagents: session.subagents, paused: offscreen) }
             }
             if hovering && canStop {
                 Button { model.interrupt(session) } label: { Image(systemName: "stop.fill") }
@@ -232,6 +259,11 @@ struct SessionRow: View {
             }
             if let ctx = session.contextPercent { ContextRing(fraction: ctx) }
         }
+    }
+
+    /// An Orca worker's first prompt is its injected brief; its task name reads better.
+    private var title: String {
+        session.terminal.orcaTerminal.flatMap { model.orcaWorkers[$0]?.task } ?? session.title ?? session.projectName
     }
 
     /// The agent sits at its prompt and its pane can be typed into.
@@ -315,6 +347,59 @@ private struct TaskProgressLine: View {
         .foregroundStyle(Theme.secondaryText)
         .padding(.top, 2)
         .help(tasks.items.map { ($0.status == .completed ? "✓ " : $0.status == .inProgress ? "▸ " : "· ") + $0.title }.joined(separator: "\n"))
+    }
+}
+
+/// One line per subagent: "Explore · Find the auth code   Reading auth.ts   2m".
+private struct SubagentLines: View {
+    let subagents: [Subagent]
+    var paused = false
+    private let shown = 4
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(subagents.prefix(shown)) { SubagentLine(subagent: $0, paused: paused) }
+            if subagents.count > shown {
+                Text("+\(subagents.count - shown) more")
+                    .foregroundStyle(Theme.tertiaryText)
+                    .padding(.leading, 12)
+            }
+        }
+        .font(.system(size: 10.5))
+        .padding(.top, 3)
+    }
+}
+
+private struct SubagentLine: View {
+    let subagent: Subagent
+    var paused = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            StatusDot(phase: subagent.activity == nil ? .thinking : .working, size: 6, paused: paused)
+            Text(name)
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.secondaryText)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Text(subagent.activity?.progressive ?? "Thinking…")
+                .italic(subagent.activity == nil)
+                .foregroundStyle(Theme.tertiaryText)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            TimelineView(.periodic(from: .now, by: 30)) { _ in
+                Text(subagent.startedAt.shortAgo)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.tertiaryText)
+            }
+        }
+        .help([name, subagent.activity?.detail].compactMap { $0 }.joined(separator: "\n"))
+    }
+
+    /// "Explore · Find the auth code", or whichever half is known.
+    private var name: String {
+        let parts = [subagent.type, subagent.task].compactMap { $0 }
+        return parts.isEmpty ? "Subagent" : parts.joined(separator: " · ")
     }
 }
 
