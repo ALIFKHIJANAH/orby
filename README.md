@@ -48,7 +48,10 @@ optional Claude plan-limit request (and, if you turn it on, the quota check agy 
   - **`agy /usage`** (Settings → Usage): every 5 minutes, and when you open the Usage tab, Orby runs
     `agy -p "/usage" --output-format json` (20 s timeout, no shell, stdin closed). agy ≥ 1.1.11
     answers it without a model turn, so it spends no quota and saves no conversation, but agy
-    does ask Google with your own sign-in.
+    does ask Google with your own sign-in. Timed runs skip while the display is off, the screen
+    is locked, the Mac is offline or just woke up. When agy can't refresh its token it opens a
+    browser to sign in. If that happens, the 20 s timeout pauses the timed runs until you press
+    Refresh now.
 
   The newest reading wins per bucket. A window whose reset time has passed is dimmed until the
   next reading.

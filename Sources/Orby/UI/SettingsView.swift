@@ -423,7 +423,7 @@ private struct UsageSettings: View {
             Text("Antigravity")
         } footer: {
             Text(
-                "Every 5 minutes, and when you open the Usage tab, Orby runs `agy -p \"/usage\" --output-format json`. agy answers it without starting a model turn, so it spends no quota and saves no conversation, but agy does ask Google for your quota using your own Antigravity sign-in. Needs agy 1.1.11 or later. The status line relay needs no network at all."
+                "Every 5 minutes while you're at the Mac (display on, unlocked, online), and when you open the Usage tab, Orby runs `agy -p \"/usage\" --output-format json`. agy answers it without starting a model turn, so it spends no quota and saves no conversation, but agy does ask Google for your quota using your own Antigravity sign-in. If agy stops to ask you to sign in, the checks pause until you press Refresh now. Needs agy 1.1.11 or later. The status line relay needs no network at all."
             )
         }
         Section {
