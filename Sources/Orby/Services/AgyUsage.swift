@@ -12,7 +12,8 @@ enum AgyUsage {
             switch self {
             case .notFound: "agy not found in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin or PATH."
             case .tooOld(let v): "agy \(v) is too old for `agy -p /usage`; run `agy update`."
-            case .timedOut: "`agy /usage` didn't answer within 20 seconds."
+            case .timedOut:
+                "`agy /usage` didn't answer within 20 seconds; agy may be waiting for a Google sign-in. Run `agy` in a terminal, then Refresh now in Settings → Usage. Automatic checks are paused until then."
             case .failed(let code): "`agy /usage` exited with status \(code). Is agy signed in?"
             case .unreadable: "Unrecognized `agy /usage` output."
             }

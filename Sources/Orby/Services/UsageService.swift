@@ -20,6 +20,9 @@ final class UsageService: ObservableObject {
     private var antigravityQuota = AntigravityQuota()
     private var antigravityFetchedAt: Date?
     private var antigravityFetching = false
+    /// Set when `agy /usage` timed out, which is what a pending browser sign-in looks like.
+    private var antigravityPaused = false
+    private let presence = UserPresence()
 
     var limits: [RateLimits] { [claudeLimits, codexLimits, antigravityLimits].compactMap { $0 } }
 
@@ -55,13 +58,24 @@ final class UsageService: ObservableObject {
     }
 
     /// Runs `agy -p "/usage"` when the user opted in, at most once a minute (pane opens included).
+    /// When agy can't refresh its token it opens a browser to sign in, so timed runs wait until
+    /// someone is at the Mac and it's online, and stop after a timeout until a forced refresh.
     func refreshAntigravityIfEnabled(force: Bool = false) {
         guard Prefs.bool(PrefKey.antigravityUsageEnabled) else {
             antigravityError = nil
+            antigravityPaused = false
             return
         }
         guard !antigravityFetching else { return }
-        if !force, let last = antigravityFetchedAt, Date().timeIntervalSince(last) < 60 { return }
+        if force {
+            guard presence.online else {
+                antigravityError = "Offline. agy needs the network to read your quota."
+                return
+            }
+        } else {
+            guard !antigravityPaused, presence.isActive else { return }
+            if let last = antigravityFetchedAt, Date().timeIntervalSince(last) < 60 { return }
+        }
         antigravityFetching = true
         antigravityFetchedAt = Date()
         Task {
@@ -71,8 +85,10 @@ final class UsageService: ObservableObject {
             case .success(let quota):
                 update(antigravity: quota)
                 antigravityError = nil
+                antigravityPaused = false
             case .failure(let error):
                 antigravityError = error.localizedDescription
+                if case .timedOut = error { antigravityPaused = true }
             }
         }
     }
