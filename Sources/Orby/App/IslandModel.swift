@@ -348,7 +348,9 @@ final class IslandModel: ObservableObject {
     func loadExternalMenu(_ request: PendingRequest) {
         // One read at a time: a screen read spawns osascript or tmux and can outlast the poll.
         guard request.kind == .external, Prefs.bool(PrefKey.antigravityAnswerFromNotch), answering[request.id] == nil,
-            !readingMenus.contains(request.id), let session = session(for: request.sessionKey)
+            !readingMenus.contains(request.id), let session = session(for: request.sessionKey),
+            // Only Antigravity's menu is understood; other agents' prompts are answered in their terminal.
+            session.agent == .antigravity
         else { return }
         let terminal = session.terminal
         let id = request.id

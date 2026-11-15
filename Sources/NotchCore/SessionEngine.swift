@@ -43,7 +43,7 @@ public struct SessionEngine: Sendable {
             switch agent {
             case .antigravity: AntigravityPayload.normalized(env.payload)
             case .claude, .codex, .unknown: env.payload
-            case .opencode, .pi, .commandcode, .qwen: ToolAliases.normalized(env.payload)
+            case .opencode, .pi, .commandcode, .qwen, .droid, .kimi: ToolAliases.normalized(env.payload)
             case .cursor: CursorPayload.normalized(env.payload)
             }
         let key = Self.sessionKey(source: agent.rawValue, sessionID: sid)
@@ -133,13 +133,24 @@ public struct SessionEngine: Sendable {
         case "PermissionRequest":
             let tool = p["tool_name"]?.string ?? "Tool"
             let input = p["tool_input"] ?? .object([:])
+            // Kimi only reports its prompt; it's answered in its own terminal.
+            let observed = !env.expectsReply && observeOnlySources.contains(agent.rawValue)
             let kind: RequestKind =
                 switch tool {
+                case _ where observed: .external
                 case "AskUserQuestion": .question
                 case "ExitPlanMode": .plan
                 default: .permission
                 }
-            if env.expectsReply {
+            if observed {
+                out.cancelledRequests = cancelPending { $0.sessionKey == key && $0.agentScope == scope }
+                let id = Self.observedID(key: key, toolCallID: p["tool_call_id"]?.string ?? env.id)
+                var request = PendingRequest(
+                    id: id, sessionKey: key, kind: .external, toolName: tool, toolInput: input,
+                    summary: ToolDescriber.describe(tool: tool, input: input), suggestions: [], receivedAt: now)
+                request.agentScope = scope
+                pending.insert(request, at: 0)
+            } else if env.expectsReply {
                 // An agent shows one permission prompt at a time: a new request supersedes any
                 // older one still listed, which would otherwise take clicks meant for this one.
                 out.cancelledRequests = cancelPending { $0.sessionKey == key && $0.agentScope == scope }
@@ -159,7 +170,7 @@ public struct SessionEngine: Sendable {
                 }
             let activity = ToolDescriber.activity(tool: tool, input: input)
             s.activity = activity
-            s.attention = kind == .permission ? "Wants to \(activity.intent)" : activity.progressive
+            s.attention = kind == .permission || observed ? "Wants to \(activity.intent)" : activity.progressive
             if !scope.isEmpty { touchSubagent(scope, p, in: &s, now: now, out: &out) { $0.activity = activity } }
             out.cue =
                 switch kind {
@@ -168,6 +179,16 @@ public struct SessionEngine: Sendable {
                 case .permission, .external: .approval
                 }
             out.reveal = .attention(key)
+
+        case "PermissionResult":
+            // Kimi's prompt was answered in its terminal. The id is only matched when both events carry one.
+            let id = p["tool_call_id"]?.string.map { Self.observedID(key: key, toolCallID: $0) }
+            let exact = pending.contains { $0.id == id }
+            out.cancelledRequests = cancelPending { $0.sessionKey == key && $0.kind == .external && (!exact || $0.id == id) }
+            if !hasPending(key) {
+                s.phase = .working
+                s.attention = nil
+            }
 
         case "Notification":
             switch p["notification_type"]?.string {
@@ -295,6 +316,9 @@ public struct SessionEngine: Sendable {
     }
 
     static func externalID(logID: String, step: Int) -> String { "agy:\(logID):\(step)" }
+
+    /// Id of a prompt an observe-only agent (Kimi) reported, stable across its PermissionResult.
+    static func observedID(key: String, toolCallID: String) -> String { "observed:\(key):\(toolCallID)" }
 
     /// A PreToolUse arrived: attach a parked prompt for this step, or refresh one already shown.
     private mutating func attachExternalPrompt(step: Int, to s: inout AgentSession, now: Date, out: inout Outcome) {

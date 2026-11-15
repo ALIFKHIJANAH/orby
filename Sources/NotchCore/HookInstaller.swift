@@ -5,7 +5,7 @@ import NotchShared
 /// other tool's hooks untouched. Writes a timestamped backup before any change.
 /// Agents without JSON hooks (OpenCode, Pi) get a plugin file instead; Command Code gets both.
 public enum HookTarget: String, CaseIterable, Sendable {
-    case claude, codex, antigravity, opencode, pi, commandcode, qwen
+    case claude, codex, antigravity, opencode, pi, commandcode, qwen, droid, kimi
 
     public var agent: AgentKind {
         switch self {
@@ -16,6 +16,8 @@ public enum HookTarget: String, CaseIterable, Sendable {
         case .pi: .pi
         case .commandcode: .commandcode
         case .qwen: .qwen
+        case .droid: .droid
+        case .kimi: .kimi
         }
     }
 
@@ -41,6 +43,23 @@ public enum HookTarget: String, CaseIterable, Sendable {
             return home.appendingPathComponent(".commandcode/settings.json")
         case .qwen:
             return home.appendingPathComponent(".qwen/settings.json")
+        case .droid:
+            // Droid reads settings.json's "hooks" only while hooks.json doesn't exist, so creating
+            // hooks.json would silently switch off hooks the user already keeps in settings.json.
+            let factory = home.appendingPathComponent(".factory")
+            let hooks = factory.appendingPathComponent("hooks.json")
+            let settings = factory.appendingPathComponent("settings.json")
+            if !FileManager.default.fileExists(atPath: hooks.path), let data = try? Data(contentsOf: settings),
+                (try? JSONValue.decode(data))?["hooks"] != nil
+            {
+                return settings
+            }
+            return hooks
+        case .kimi:
+            let dir =
+                home == NotchPaths.homeDirectory
+                ? ProcessInfo.processInfo.environment["KIMI_CODE_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } : nil
+            return (dir ?? home.appendingPathComponent(".kimi-code")).appendingPathComponent("config.toml")
         }
     }
 
@@ -61,7 +80,7 @@ public enum HookTarget: String, CaseIterable, Sendable {
             return agentDir.appendingPathComponent("extensions/orby.ts")
         case .commandcode:
             return home.appendingPathComponent(".commandcode/mods/orby.ts")
-        case .claude, .codex, .antigravity, .qwen:
+        case .claude, .codex, .antigravity, .qwen, .droid, .kimi:
             return nil
         }
     }
@@ -69,7 +88,7 @@ public enum HookTarget: String, CaseIterable, Sendable {
     /// Directories whose existence means the agent is installed on this Mac.
     public func agentDirectories(home: URL = NotchPaths.homeDirectory) -> [URL] {
         switch self {
-        case .claude, .codex, .commandcode, .qwen: [configURL(home: home).deletingLastPathComponent()]
+        case .claude, .codex, .commandcode, .qwen, .droid, .kimi: [configURL(home: home).deletingLastPathComponent()]
         case .antigravity:
             ["antigravity", "antigravity-ide", "antigravity-cli"].map { home.appendingPathComponent(".gemini/\($0)") }
         case .opencode:
@@ -107,14 +126,30 @@ public enum HookTarget: String, CaseIterable, Sendable {
         case .commandcode:
             // The only hook events it has; prompts, approvals and exit come through the mod.
             ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]
+        case .droid:
+            // No PermissionRequest; a prompt shows up as Notification/permission_prompt.
+            [
+                "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop",
+                "SubagentStop", "PreCompact",
+            ]
+        case .kimi:
+            // PermissionRequest/PermissionResult are observed only; Kimi asks in its own terminal.
+            [
+                "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
+                "PermissionRequest", "PermissionResult", "Notification", "Stop", "Interrupt", "StopFailure",
+                "SubagentStart", "SubagentStop", "PreCompact", "PostCompact",
+            ]
         case .opencode, .pi:
             []
         }
     }
 
+    /// Droid's hooks.json is the hook map itself, with no "hooks" wrapper.
+    func hooksAtRoot(_ url: URL) -> Bool { self == .droid && url.lastPathComponent == "hooks.json" }
+
     /// Seconds the agent waits for the hook. Permission requests block until the user decides.
     public func timeout(for event: String) -> Int {
-        guard blockingEvents.contains(event) else { return 10 }
+        guard expectsReply(source: rawValue, event: event) else { return 10 }
         switch self {
         case .claude: return 86400
         // Qwen reads any timeout of 1000 or more as milliseconds.
@@ -159,8 +194,14 @@ public enum HookInstaller {
     }
 
     public static func hasLegacy(_ target: HookTarget, home: URL = NotchPaths.homeDirectory) -> Bool {
-        guard target.hasHookConfig, let data = try? Data(contentsOf: target.configURL(home: home)), let root = try? JSONValue.decode(data) else { return false }
-        return hasLegacy(in: root)
+        let url = target.configURL(home: home)
+        guard target.hasHookConfig, let data = try? Data(contentsOf: url), let root = try? JSONValue.decode(data) else { return false }
+        return hasLegacy(in: wrapped(root, target, url))
+    }
+
+    /// Droid's hooks.json as if it had Claude's "hooks" wrapper, so one code path reads every JSON config.
+    static func wrapped(_ root: JSONValue, _ target: HookTarget, _ url: URL) -> JSONValue {
+        target.hooksAtRoot(url) ? ["hooks": root] : root
     }
 
     private static func handler(_ target: HookTarget, _ event: String) -> JSONValue {
@@ -270,10 +311,17 @@ public enum HookInstaller {
         }
         // Each part Orby writes (hook config, plugin file) is either fully there, missing or partial.
         var parts: [Status] = []
-        if target.hasHookConfig {
+        if target == .kimi {
+            let url = target.configURL(home: home)
+            let text = (try? Data(contentsOf: url)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let ours = TOMLHookBlock.events(in: text)
+            if TOMLHookBlock.contains(text), ours.isEmpty { return .unreadable("Orby’s block in \(url.lastPathComponent) was edited") }
+            parts.append(ours.isSuperset(of: target.events) ? .installed : ours.isEmpty ? .notInstalled : .partial)
+        } else if target.hasHookConfig {
             let url = target.configURL(home: home)
             if let data = try? Data(contentsOf: url) {
-                guard let root = try? JSONValue.decode(data) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
+                guard let parsed = try? JSONValue.decode(data) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
+                let root = wrapped(parsed, target, url)
                 parts.append(isInstalled(target, in: root) ? .installed : ourEvents(target, in: root).isEmpty ? .notInstalled : .partial)
             } else {
                 parts.append(.notInstalled)
@@ -295,10 +343,12 @@ public enum HookInstaller {
     public enum InstallError: LocalizedError {
         case invalidJSON(URL)
         case foreignPlugin(URL)
+        case uneditableTOML(URL, TOMLHookBlock.EditError)
         public var errorDescription: String? {
             switch self {
             case .invalidJSON(let url): "\(url.path) isn’t valid JSON, so it was left untouched."
             case .foreignPlugin(let url): "\(url.path) wasn’t written by Orby, so it was left untouched."
+            case .uneditableTOML(let url, let why): "\(url.path): \(why.localizedDescription), so it was left untouched."
             }
         }
     }
@@ -333,6 +383,7 @@ public enum HookInstaller {
     }
 
     private static func applyHooks(_ target: HookTarget, install: Bool, home: URL, backupDir: URL, now: Date) throws -> URL? {
+        if target == .kimi { return try applyTOMLHooks(target, install: install, home: home, backupDir: backupDir, now: now) }
         let fm = FileManager.default
         // Write through symlinks (dotfile repos) instead of replacing the link with a file.
         let url = target.configURL(home: home).resolvingSymlinksInPath()
@@ -340,14 +391,46 @@ public enum HookInstaller {
         var saved: URL?
         if let data = try? Data(contentsOf: url) {
             guard let parsed = try? JSONValue.decode(data) else { throw InstallError.invalidJSON(url) }
-            root = parsed
+            root = wrapped(parsed, target, url)
             saved = try backup(data, of: url, for: target, in: backupDir, now: now)
         } else if !install {
             return nil
+        } else {
+            root = wrapped(root, target, url)
         }
-        let updated = install ? installing(target, into: root) : uninstalling(from: root)
+        var updated = install ? installing(target, into: root) : uninstalling(from: root)
+        if target.hooksAtRoot(url) { updated = updated["hooks"] ?? .object([:]) }
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try updated.encoded(pretty: true).write(to: url, options: .atomic)
+        return saved
+    }
+
+    /// Kimi Code's config.toml: only Orby's marked block changes; every other byte is kept.
+    private static func applyTOMLHooks(_ target: HookTarget, install: Bool, home: URL, backupDir: URL, now: Date) throws -> URL? {
+        let url = target.configURL(home: home).resolvingSymlinksInPath()
+        let data = try? Data(contentsOf: url)
+        guard data != nil || install else { return nil }
+        let updated: String
+        do {
+            // Text that doesn't survive a UTF-8 round trip couldn't be written back byte for byte.
+            var text = ""
+            if let data {
+                guard let decoded = String(data: data, encoding: .utf8), Data(decoded.utf8) == data else { throw TOMLHookBlock.EditError.notUTF8 }
+                text = decoded
+            }
+            updated =
+                install
+                ? try TOMLHookBlock.installing(
+                    TOMLHookBlock.block(events: target.events, command: { command(for: target, event: $0) }, timeout: target.timeout(for:)),
+                    into: text)
+                : try TOMLHookBlock.uninstalling(from: text)
+        } catch let error as TOMLHookBlock.EditError {
+            throw InstallError.uneditableTOML(url, error)
+        }
+        guard Data(updated.utf8) != data else { return nil }
+        let saved = try data.map { try backup($0, of: url, for: target, in: backupDir, now: now) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(updated.utf8).write(to: url, options: .atomic)
         return saved
     }
 }
