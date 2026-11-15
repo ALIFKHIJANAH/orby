@@ -24,6 +24,10 @@ extension HookTarget {
             "Status comes from hooks, approvals from an Orby mod. Mods are experimental in Command Code; while the notch shows a request, Command Code's own prompt waits for it."
         case .claude, .codex, .antigravity, .qwen:
             nil
+        case .gemini:
+            "Gemini CLI can't be answered from outside, so the notch alerts you when it asks and jumps to its terminal. Gemini skips all hooks in folders you haven't trusted, so those sessions don't show up."
+        case .copilot:
+            "Orby shows Copilot's status and alerts you when it asks. To approve from the notch, turn on “Answer Copilot CLI prompts from the notch” below."
         }
     }
 }

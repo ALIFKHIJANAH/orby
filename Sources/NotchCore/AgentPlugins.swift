@@ -22,6 +22,7 @@ public enum PluginInstaller {
         case .pi: AgentPluginSource.pi
         case .commandcode: AgentPluginSource.commandCode
         case .claude, .codex, .antigravity, .qwen: nil
+        case .gemini, .copilot: nil
         }
     }
 

@@ -3,6 +3,7 @@ import NotchShared
 
 public enum AgentKind: String, Codable, CaseIterable, Sendable {
     case claude, codex, antigravity, opencode, pi, commandcode, qwen, cursor, unknown
+    case gemini, copilot
 
     public init(source: String) { self = AgentKind(rawValue: source) ?? .unknown }
 
@@ -22,6 +23,8 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         case .qwen: "Qwen Code"
         case .cursor: "Cursor"
         case .unknown: "Agent"
+        case .gemini: "Gemini CLI"
+        case .copilot: "Copilot CLI"
         }
     }
 }

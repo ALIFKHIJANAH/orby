@@ -39,11 +39,13 @@ enum Theme {
         case .qwen: Color(red: 0.48, green: 0.40, blue: 0.96)
         case .cursor: Color(red: 0.62, green: 0.66, blue: 0.74)
         case .unknown: Color.gray
+        case .gemini: Color(red: 0.30, green: 0.62, blue: 0.98)
+        case .copilot: Color(red: 0.80, green: 0.82, blue: 0.86)
         }
     }
 
     /// Light brand colors get dark eyes and glyphs.
-    static func isLight(_ agent: AgentKind) -> Bool { [.codex, .commandcode, .cursor].contains(agent) }
+    static func isLight(_ agent: AgentKind) -> Bool { [.codex, .commandcode, .cursor, .copilot].contains(agent) }
 
     static func symbol(for agent: AgentKind) -> String {
         switch agent {
@@ -56,6 +58,8 @@ enum Theme {
         case .qwen: "sparkle"
         case .cursor: "cursorarrow"
         case .unknown: "cpu"
+        case .gemini: "sparkles"
+        case .copilot: "eyeglasses"
         }
     }
 }

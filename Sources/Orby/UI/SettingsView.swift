@@ -216,6 +216,7 @@ private struct IntegrationSettings: View {
     @AppStorage(PrefKey.autoConfigureAgents) private var autoConfigure = false
     @AppStorage(PrefKey.antigravityAnswerFromNotch) private var answerAntigravity = true
     @AppStorage(PrefKey.antigravityStatusLine) private var statusLineWanted = false
+    @AppStorage(PrefKey.copilotApprovals) private var copilotApprovals = false
     @State private var statusLine = StatusLineInstaller.status()
 
     var body: some View {
@@ -279,6 +280,16 @@ private struct IntegrationSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+            }
+        }
+        if status.statuses[.copilot] == .installed {
+            Section("Copilot CLI") {
+                Toggle("Answer Copilot CLI prompts from the notch", isOn: $copilotApprovals)
+                Text(
+                    "Copilot asks its hook before applying its own rules, so with this on the notch also asks about calls Copilot would have allowed by itself. Off, Copilot asks in its terminal and the notch alerts you."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
         Section("Bridge") {

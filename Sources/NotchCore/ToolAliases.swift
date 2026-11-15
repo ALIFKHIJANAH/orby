@@ -18,13 +18,17 @@ public enum ToolAliases {
         "web_search": "WebSearch", "websearch": "WebSearch", "google_web_search": "WebSearch",
         // Planning
         "todo_write": "TodoWrite", "todowrite": "TodoWrite", "task": "Task", "exit_plan_mode": "ExitPlanMode",
+        // Gemini CLI and Copilot CLI
+        "search_file_content": "Grep", "view": "Read", "create": "Write",
     ]
 
     /// Claude's argument name → the names other agents use for it.
     private static let keys: [String: [String]] = [
         "file_path": ["filePath", "absolute_path", "path"],
-        "old_string": ["oldString", "oldText"],
-        "new_string": ["newString", "newText"],
+        "old_string": ["oldString", "oldText", "old_str"],
+        "new_string": ["newString", "newText", "new_str"],
+        // Copilot CLI's edit and create.
+        "content": ["file_text"],
     ]
 
     public static func claudeName(_ tool: String) -> String { names[tool] ?? tool }
