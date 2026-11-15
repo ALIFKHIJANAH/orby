@@ -77,6 +77,7 @@ public struct SessionEngine: Sendable {
             if let prompt, !prompt.isEmpty {
                 s.lastPrompt = prompt
                 if s.title == nil { s.title = ToolDescriber.firstLine(prompt, max: 80) }
+                if s.firstPrompt == nil { s.firstPrompt = prompt }
             }
             s.phase = .thinking
             s.activity = nil

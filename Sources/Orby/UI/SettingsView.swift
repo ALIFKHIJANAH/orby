@@ -215,6 +215,7 @@ private struct GeneralSettings: View {
             Text("Stops idle sleep while any session is working, so long runs finish. The display can still sleep. Released as soon as nothing is working, and when Orby quits.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        SessionFilterSettings()
     }
 }
 
@@ -669,5 +670,49 @@ private struct AboutSettings: View {
             Text("Run this before deleting the app. Hooks are guarded and do nothing if the bridge is missing.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Hide rules and the session switcher shortcut.
+private struct SessionFilterSettings: View {
+    @AppStorage(PrefKey.hiddenFolders) private var hiddenFolders = ""
+    @AppStorage(PrefKey.hiddenPrompts) private var hiddenPrompts = ""
+    @AppStorage(PrefKey.switcherShortcut) private var switcherShortcut = false
+
+    var body: some View {
+        Section {
+            LabeledContent("Folders") {
+                VStack(alignment: .trailing, spacing: 4) {
+                    editor($hiddenFolders)
+                    Button("Add Folder…") {
+                        if let path = FolderPicker.choose(from: "") {
+                            hiddenFolders = (Prefs.lines(hiddenFolders) + [FolderPicker.abbreviate(path)]).joined(separator: "\n")
+                        }
+                    }
+                }
+            }
+            LabeledContent("First prompt contains") { editor($hiddenPrompts) }
+        } header: {
+            Text("Hidden sessions")
+        } footer: {
+            Text("One rule per line. A folder hides sessions in it and below it (~ works); text matches anywhere in a session's first prompt, ignoring case. Hidden sessions stay out of the list and never chime or open the notch, but their approvals, questions and plans still do, so an agent is never left waiting unseen.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Section {
+            Toggle("⌃⌥S opens the session switcher from any app", isOn: $switcherShortcut)
+        } header: {
+            Text("Session switcher")
+        } footer: {
+            Text("Type to filter by project, title or branch, ↑↓ to pick, Return to jump to its terminal (or open its request in the notch), Esc to close.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func editor(_ text: Binding<String>) -> some View {
+        TextEditor(text: text)
+            .font(.system(size: 11.5, design: .monospaced))
+            .frame(minHeight: 44, maxHeight: 80)
+            .scrollContentBackground(.hidden)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
     }
 }
