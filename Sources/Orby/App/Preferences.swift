@@ -59,6 +59,12 @@ enum PrefKey {
     static let newAgentShortcut = "newAgentShortcut"
     /// ⌃⌥J jumps to the session that needs you from any app. Off by default: it's a global key.
     static let jumpShortcut = "jumpShortcut"
+    /// Silence sounds while a macOS Focus is on. Reading Focus needs permission, asked only from Settings.
+    static let followFocus = "followFocus"
+    /// A `KeepAwakePolicy.Mode`: hold off idle sleep while an agent works. Off by default.
+    static let keepAwake = "keepAwake"
+    /// Extra Claude Code config folders (besides ~/.claude and $CLAUDE_CONFIG_DIR), one path per line.
+    static let claudeConfigDirs = "claudeConfigDirs"
     static func soundEnabled(_ cue: SoundCue) -> String { "sound.\(cue.rawValue)" }
 }
 
@@ -125,6 +131,9 @@ enum Prefs {
             PrefKey.recentFolders: "",
             PrefKey.newAgentShortcut: true,
             PrefKey.jumpShortcut: false,
+            PrefKey.followFocus: true,
+            PrefKey.keepAwake: KeepAwakePolicy.Mode.off.rawValue,
+            PrefKey.claudeConfigDirs: "",
         ]
         for cue in SoundCue.allCases { values[PrefKey.soundEnabled(cue)] = cue != .start }
         defaults.register(defaults: values)
@@ -134,5 +143,7 @@ enum Prefs {
     static func lines(_ stored: String) -> [String] { stored.split(separator: "\n").map(String.init) }
     static func double(_ key: String) -> Double { defaults.double(forKey: key) }
     static var soundTheme: SoundTheme { SoundTheme(rawValue: defaults.string(forKey: PrefKey.soundTheme) ?? "") ?? .chiptune }
+    static var keepAwake: KeepAwakePolicy.Mode { KeepAwakePolicy.Mode(rawValue: defaults.string(forKey: PrefKey.keepAwake) ?? "") ?? .off }
+    static var claudeConfigDirs: [URL] { ClaudeConfigDirs.extras(lines(defaults.string(forKey: PrefKey.claudeConfigDirs) ?? "")) }
     static var display: DisplayChoice { DisplayChoice(rawValue: defaults.string(forKey: PrefKey.display) ?? "") ?? .auto }
 }
