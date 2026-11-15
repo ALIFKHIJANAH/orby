@@ -80,6 +80,7 @@ final class IslandModel: ObservableObject {
 
     let usage = UsageService()
     let sound = SoundPlayer()
+    let keepAwake = KeepAwakeService()
 
     private var engine = SessionEngine()
     private var connections: [String: BridgeConnection] = [:]
@@ -105,6 +106,7 @@ final class IslandModel: ObservableObject {
                 self?.updateIdleTab()
                 self?.updateLaunchHotKey()
                 self?.updateJumpHotKey()
+                self?.updateKeepAwake()
             }
         updateLaunchHotKey()
         updateJumpHotKey()
@@ -655,6 +657,7 @@ final class IslandModel: ObservableObject {
         if ordered != sessions { sessions = ordered }
         if engine.pending != pending { pending = engine.pending }
         updateIdleTab()
+        updateKeepAwake()
         let live = Set(pending.map(\.id))
         if externalMenus.keys.contains(where: { !live.contains($0) }) { externalMenus = externalMenus.filter { live.contains($0.key) } }
         if answering.keys.contains(where: { !live.contains($0) }) { answering = answering.filter { live.contains($0.key) } }
@@ -892,6 +895,8 @@ final class IslandModel: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + remaining + 0.05, execute: work)
         }
     }
+
+    private func updateKeepAwake() { keepAwake.update(mode: Prefs.keepAwake, anyWorking: workingCount > 0) }
 
     var attentionCount: Int { sessions.filter { $0.phase.needsUser }.count }
     var workingCount: Int { sessions.filter { $0.phase.group == .working }.count }

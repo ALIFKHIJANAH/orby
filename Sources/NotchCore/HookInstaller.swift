@@ -271,13 +271,9 @@ public enum HookInstaller {
         // Each part Orby writes (hook config, plugin file) is either fully there, missing or partial.
         var parts: [Status] = []
         if target.hasHookConfig {
-            let url = target.configURL(home: home)
-            if let data = try? Data(contentsOf: url) {
-                guard let root = try? JSONValue.decode(data) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
-                parts.append(isInstalled(target, in: root) ? .installed : ourEvents(target, in: root).isEmpty ? .notInstalled : .partial)
-            } else {
-                parts.append(.notInstalled)
-            }
+            let part = hookStatus(target, at: target.configURL(home: home))
+            if case .unreadable = part { return part }
+            parts.append(part)
         }
         if let url = target.pluginURL(home: home) {
             switch PluginInstaller.state(target, home: home) {
@@ -290,6 +286,13 @@ public enum HookInstaller {
         }
         if parts.allSatisfy({ $0 == .installed }) { return .installed }
         return parts.allSatisfy({ $0 == .notInstalled }) ? .notInstalled : .partial
+    }
+
+    /// Installed, not installed, partial or unreadable, for one hook config file.
+    static func hookStatus(_ target: HookTarget, at url: URL) -> Status {
+        guard let data = try? Data(contentsOf: url) else { return .notInstalled }
+        guard let root = try? JSONValue.decode(data) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
+        return isInstalled(target, in: root) ? .installed : ourEvents(target, in: root).isEmpty ? .notInstalled : .partial
     }
 
     public enum InstallError: LocalizedError {
@@ -324,24 +327,29 @@ public enum HookInstaller {
         return backup
     }
 
-    static func backup(_ data: Data, of url: URL, for target: HookTarget, in backupDir: URL, now: Date) throws -> URL {
+    /// `name` tells apart backups of several files with the same name (extra Claude config folders).
+    static func backup(_ data: Data, of url: URL, for target: HookTarget, in backupDir: URL, now: Date, name: String? = nil) throws -> URL {
         try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
         let stamp = ISO8601DateFormatter().string(from: now).replacingOccurrences(of: ":", with: "-")
-        let b = backupDir.appendingPathComponent("\(target.rawValue)-\(url.lastPathComponent).\(stamp)")
+        let b = backupDir.appendingPathComponent("\(name ?? target.rawValue)-\(url.lastPathComponent).\(stamp)")
         try data.write(to: b)
         return b
     }
 
     private static func applyHooks(_ target: HookTarget, install: Bool, home: URL, backupDir: URL, now: Date) throws -> URL? {
+        try applyHooks(target, install: install, at: target.configURL(home: home), backupName: nil, backupDir: backupDir, now: now)
+    }
+
+    static func applyHooks(_ target: HookTarget, install: Bool, at configURL: URL, backupName: String?, backupDir: URL, now: Date) throws -> URL? {
         let fm = FileManager.default
         // Write through symlinks (dotfile repos) instead of replacing the link with a file.
-        let url = target.configURL(home: home).resolvingSymlinksInPath()
+        let url = configURL.resolvingSymlinksInPath()
         var root: JSONValue = .object([:])
         var saved: URL?
         if let data = try? Data(contentsOf: url) {
             guard let parsed = try? JSONValue.decode(data) else { throw InstallError.invalidJSON(url) }
             root = parsed
-            saved = try backup(data, of: url, for: target, in: backupDir, now: now)
+            saved = try backup(data, of: url, for: target, in: backupDir, now: now, name: backupName)
         } else if !install {
             return nil
         }

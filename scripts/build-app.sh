@@ -34,6 +34,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleEventsUsageDescription</key>
   <string>Orby controls terminal apps (iTerm2, Terminal) to bring the right window, tab and session forward when you click an agent.</string>
+  <key>NSFocusStatusUsageDescription</key>
+  <string>Orby keeps its sounds quiet while a Focus is on.</string>
 </dict>
 </plist>
 PLIST

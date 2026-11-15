@@ -10,6 +10,11 @@ struct IntegrationStatus {
     }
 
     var anyInstalled: Bool { statuses.values.contains(.installed) }
+
+    /// Extra Claude config folders from Settings, in the order the user added them.
+    static func claudeDirs() -> [(dir: URL, status: HookInstaller.Status)] {
+        Prefs.claudeConfigDirs.map { ($0, HookInstaller.status(claudeConfigDir: $0)) }
+    }
 }
 
 extension HookTarget {
@@ -67,6 +72,9 @@ enum BridgeSetup {
         var results: [HookTarget: Result<URL?, Error>] = [:]
         for target in HookTarget.allCases where HookInstaller.status(target) != .agentMissing {
             results[target] = Result { try HookInstaller.apply(target, install: true) }
+        }
+        for dir in Prefs.claudeConfigDirs where HookInstaller.status(claudeConfigDir: dir) != .agentMissing {
+            _ = try? HookInstaller.apply(claudeConfigDir: dir, install: true)
         }
         // The status line relay is opt-in: only reinstalled when its Settings toggle is on.
         if Prefs.bool(PrefKey.antigravityStatusLine), StatusLineInstaller.status() == .notInstalled {

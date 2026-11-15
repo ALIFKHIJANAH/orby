@@ -99,6 +99,7 @@ private struct GeneralSettings: View {
     @AppStorage(PrefKey.launchFolder) private var launchFolder = ""
     @AppStorage(PrefKey.newAgentShortcut) private var newAgentShortcut = true
     @AppStorage(PrefKey.jumpShortcut) private var jumpShortcut = false
+    @AppStorage(PrefKey.keepAwake) private var keepAwake = KeepAwakePolicy.Mode.off.rawValue
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -206,6 +207,14 @@ private struct GeneralSettings: View {
             Toggle("⌃⌥J jumps to the session that needs you", isOn: $jumpShortcut)
             Text("Allow and deny work only while a permission request is open in the notch. ⌃⌥J opens a request you can answer in the notch, otherwise it brings up the terminal of the session waiting longest, or the last one that finished.").font(.caption).foregroundStyle(.secondary)
         }
+        Section("Power") {
+            Picker("Keep the Mac awake", selection: $keepAwake) {
+                Text("Off").tag(KeepAwakePolicy.Mode.off.rawValue)
+                Text("While agents work").tag(KeepAwakePolicy.Mode.whileWorking.rawValue)
+            }
+            Text("Stops idle sleep while any session is working, so long runs finish. The display can still sleep. Released as soon as nothing is working, and when Orby quits.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -217,6 +226,8 @@ private struct IntegrationSettings: View {
     @AppStorage(PrefKey.antigravityAnswerFromNotch) private var answerAntigravity = true
     @AppStorage(PrefKey.antigravityStatusLine) private var statusLineWanted = false
     @State private var statusLine = StatusLineInstaller.status()
+    @AppStorage(PrefKey.claudeConfigDirs) private var claudeDirsStored = ""
+    @State private var claudeDirs = IntegrationStatus.claudeDirs()
 
     var body: some View {
         Section {
@@ -227,6 +238,16 @@ private struct IntegrationSettings: View {
             Text("Agents")
         } footer: {
             Text("Orby adds a small hook or plugin to each agent's own config. Other tools' hooks and plugins are left alone, and a backup is saved to ~/.orby/backups before every change. Restart running sessions afterwards.")
+        }
+        Section {
+            ForEach(claudeDirs, id: \.dir) { entry in
+                claudeDirRow(entry.dir, entry.status)
+            }
+            Button("Add Folder…") { addClaudeDir() }
+        } header: {
+            Text("More Claude Code folders")
+        } footer: {
+            Text("For Claude Code run with another CLAUDE_CONFIG_DIR, such as a second account. Connect adds the same hooks as above to that folder's settings.json.")
         }
         ForEach([HookTarget.claude, .codex, .qwen], id: \.self) { target in
             let others = HookInstaller.foreignBlockingHooks(target)
@@ -321,6 +342,71 @@ private struct IntegrationSettings: View {
         }
     }
 
+    @ViewBuilder private func claudeDirRow(_ dir: URL, _ s: HookInstaller.Status) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dir.lastPathComponent).font(.headline)
+                Text(dir.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            switch s {
+            case .agentMissing:
+                Text("Folder not found").foregroundStyle(.secondary)
+            case .unreadable(let why):
+                Text(why).foregroundStyle(.red).font(.caption)
+            case .installed:
+                Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Button("Remove") { applyClaudeDir(dir, install: false) }
+            case .partial:
+                Button("Repair") { applyClaudeDir(dir, install: true) }
+            case .notInstalled:
+                Button("Connect") { applyClaudeDir(dir, install: true) }.buttonStyle(.borderedProminent)
+            }
+            Button {
+                forgetClaudeDir(dir, status: s)
+            } label: {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Stop managing this folder (removes Orby's hooks from it first)")
+        }
+    }
+
+    private func addClaudeDir() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.showsHiddenFiles = true
+        panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory())
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let before = Prefs.claudeConfigDirs
+        claudeDirsStored = (Prefs.lines(claudeDirsStored) + [url.path]).joined(separator: "\n")
+        if Prefs.claudeConfigDirs.count == before.count {
+            message = "\(url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) is already handled."
+        }
+        claudeDirs = IntegrationStatus.claudeDirs()
+    }
+
+    private func forgetClaudeDir(_ dir: URL, status: HookInstaller.Status) {
+        if status == .installed || status == .partial { applyClaudeDir(dir, install: false) }
+        claudeDirsStored = Prefs.claudeConfigDirs.filter { $0 != dir }.map(\.path).joined(separator: "\n")
+        claudeDirs = IntegrationStatus.claudeDirs()
+    }
+
+    private func applyClaudeDir(_ dir: URL, install: Bool) {
+        if install { bridgeInstalled = BridgeSetup.installIfNeeded() }
+        let name = dir.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        do {
+            let backup = try HookInstaller.apply(claudeConfigDir: dir, install: install)
+            message = (install ? "Connected Claude Code in \(name)." : "Removed Orby hooks from \(name).")
+                + (backup.map { " Backup: \($0.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))" } ?? "")
+                + (install ? " Restart running sessions to pick it up." : "")
+        } catch {
+            message = error.localizedDescription
+        }
+        claudeDirs = IntegrationStatus.claudeDirs()
+    }
+
     private func apply(_ target: HookTarget, install: Bool) {
         if install { bridgeInstalled = BridgeSetup.installIfNeeded() }
         do {
@@ -358,6 +444,8 @@ private struct SoundSettings: View {
     @AppStorage(PrefKey.quietHoursEnabled) private var quietHours = false
     @AppStorage(PrefKey.quietHoursStart) private var quietStart = 22
     @AppStorage(PrefKey.quietHoursEnd) private var quietEnd = 8
+    @AppStorage(PrefKey.followFocus) private var followFocus = true
+    @State private var focusAccess = FocusStatus.authorization
 
     var body: some View {
         Section("Theme") {
@@ -382,10 +470,32 @@ private struct SoundSettings: View {
                 Picker("From", selection: $quietStart) { hours }
                 Picker("Until", selection: $quietEnd) { hours }
             }
+            Toggle("Quiet while a Focus is on", isOn: $followFocus)
+                .onChange(of: followFocus) { _, on in
+                    if on { FocusStatus.requestAccess { focusAccess = $0 } }
+                }
+            if followFocus && focusAccess != .authorized {
+                focusAccessNote
+            }
         }
         Section("Events") {
             ForEach(SoundCue.allCases, id: \.self) { cue in
                 CueRow(cue: cue, sound: sound)
+            }
+        }
+    }
+
+    @ViewBuilder private var focusAccessNote: some View {
+        switch focusAccess {
+        case .denied, .restricted:
+            Text("Orby isn't allowed to see your Focus status. Allow it in System Settings → Privacy & Security → Focus.")
+                .font(.caption).foregroundStyle(.secondary)
+        default:
+            HStack {
+                Text("Orby needs your permission to see whether a Focus is on.").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Allow…") { FocusStatus.requestAccess { focusAccess = $0 } }
+                    .disabled(!FocusStatus.canAsk)
             }
         }
     }
@@ -549,6 +659,9 @@ private struct AboutSettings: View {
             Button("Remove all agent hooks", role: .destructive) {
                 for t in HookTarget.allCases where HookInstaller.status(t) == .installed || HookInstaller.status(t) == .partial {
                     _ = try? HookInstaller.apply(t, install: false)
+                }
+                for dir in Prefs.claudeConfigDirs {
+                    _ = try? HookInstaller.apply(claudeConfigDir: dir, install: false)
                 }
                 _ = try? StatusLineInstaller.apply(install: false)
                 Prefs.defaults.set(false, forKey: PrefKey.antigravityStatusLine)

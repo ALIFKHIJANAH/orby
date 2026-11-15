@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for target in HookTarget.allCases where HookInstaller.status(target) == .notInstalled {
                 _ = try? HookInstaller.apply(target, install: true)
             }
+            for dir in Prefs.claudeConfigDirs where HookInstaller.status(claudeConfigDir: dir) == .notInstalled {
+                _ = try? HookInstaller.apply(claudeConfigDir: dir, install: true)
+            }
             // Only ever put back after the user turned it on in Settings.
             if Prefs.bool(PrefKey.antigravityStatusLine), StatusLineInstaller.status() == .notInstalled {
                 _ = try? StatusLineInstaller.apply(install: true)
@@ -68,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
+        model.keepAwake.stop()
     }
 
     // MARK: Menu bar
