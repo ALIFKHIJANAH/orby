@@ -1,8 +1,8 @@
 # Orby
 
 A Dynamic Island for your AI coding agents. Orby lives in the MacBook notch (or a
-floating bar on Macs without one) and shows what Claude Code, Codex, OpenCode, Qwen Code, Command Code,
-Pi, Antigravity and Cursor are doing. You can
+floating bar on Macs without one) and shows what Claude Code (CLI and Desktop), Codex (CLI and app), OpenCode, Qwen Code, Command Code,
+Pi, Antigravity, Cursor, Gemini CLI, GitHub Copilot CLI, Factory Droid and Kimi Code are doing. You can
 approve tool calls, answer questions, review plans and jump back to the right terminal tab
 without leaving what you're doing.
 
