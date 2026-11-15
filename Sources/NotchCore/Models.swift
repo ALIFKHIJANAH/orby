@@ -86,6 +86,13 @@ public struct TerminalContext: Codable, Hashable, Sendable {
     public var agentPID: Int32?
     /// Set when the agent runs inside Claude Desktop or the Codex app rather than a terminal.
     public var desktop: DesktopHost?
+    /// Zellij session name and pane number (ZELLIJ_PANE_ID), for `zellij action focus-pane-id`.
+    public var zellijSession: String?
+    public var zellijPane: String?
+    /// cmux workspace/surface ids and its socket, for `workspace.select` + `surface.focus`.
+    public var cmuxWorkspace: String?
+    public var cmuxSurface: String?
+    public var cmuxSocket: String?
 
     public init() {}
 
@@ -103,6 +110,11 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         orcaTabID = env["ORCA_TAB_ID"]
         orcaPane = env["ORCA_AGENT_PANE"]
         orcaTerminal = env["ORCA_TERMINAL_HANDLE"]
+        zellijSession = env["ZELLIJ_SESSION_NAME"]
+        zellijPane = env["ZELLIJ_PANE_ID"]
+        cmuxWorkspace = env["CMUX_WORKSPACE_ID"]
+        cmuxSurface = env["CMUX_SURFACE_ID"]
+        cmuxSocket = env["CMUX_SOCKET_PATH"]
         tty = envelope.tty
         agentPID = envelope.agentPID
         appBundlePath = envelope.processChain.lazy.compactMap { $0.path.flatMap(ProcessTree.outermostAppBundle) }.first
@@ -134,6 +146,11 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         m.orcaTerminal = orcaTerminal ?? old.orcaTerminal
         m.agentPID = agentPID ?? old.agentPID
         m.desktop = desktop ?? old.desktop
+        m.zellijSession = zellijSession ?? old.zellijSession
+        m.zellijPane = zellijPane ?? old.zellijPane
+        m.cmuxWorkspace = cmuxWorkspace ?? old.cmuxWorkspace
+        m.cmuxSurface = cmuxSurface ?? old.cmuxSurface
+        m.cmuxSocket = cmuxSocket ?? old.cmuxSocket
         return m
     }
 }

@@ -83,6 +83,8 @@ public let terminalEnvKeys: [String] = [
     "ORCA_TAB_ID", "ORCA_AGENT_PANE", "ORCA_TERMINAL_HANDLE",
     // Claude Desktop's Code tab sets "claude-desktop"; such sessions have no terminal.
     "CLAUDE_CODE_ENTRYPOINT",
+    // Zellij pane and cmux workspace/surface/socket, for precise jumps.
+    "ZELLIJ_PANE_ID", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_SOCKET_PATH",
 ]
 
 public let wireJSONEncoder: JSONEncoder = {
