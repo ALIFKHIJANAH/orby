@@ -22,6 +22,10 @@ enum TerminalJumper {
     ]
 
     static func jump(to session: AgentSession) {
+        if let target = session.desktopJumpTarget {
+            DispatchQueue.main.async { open(target) }
+            return
+        }
         let t = session.terminal
         let cwd = session.cwd
         DispatchQueue.global(qos: .userInitiated).async {
@@ -70,6 +74,21 @@ enum TerminalJumper {
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: config)
+    }
+
+    /// Desktop apps have no tab to find; a URL lands on the conversation, else just activate.
+    @MainActor
+    private static func open(_ target: JumpTarget) {
+        switch target {
+        case .activate(let bundleID):
+            activate(bundleID: bundleID)
+        case .url(let url):
+            // Open with Codex itself so another app claiming the scheme can't intercept it.
+            guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: DesktopApp.codex.bundleID) else { return }
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.open([url], withApplicationAt: app, configuration: config)
+        }
     }
 
     @MainActor

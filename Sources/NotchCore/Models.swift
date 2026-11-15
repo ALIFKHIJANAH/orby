@@ -84,6 +84,8 @@ public struct TerminalContext: Codable, Hashable, Sendable {
     /// The `term_…` handle Orca's orchestration uses for this terminal.
     public var orcaTerminal: String?
     public var agentPID: Int32?
+    /// Set when the agent runs inside Claude Desktop or the Codex app rather than a terminal.
+    public var desktop: DesktopHost?
 
     public init() {}
 
@@ -106,6 +108,11 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         appBundlePath = envelope.processChain.lazy.compactMap { $0.path.flatMap(ProcessTree.outermostAppBundle) }.first
         bundleID = env["__CFBundleIdentifier"]
         if let path = appBundlePath, let id = Bundle(path: path)?.bundleIdentifier { bundleID = id }
+        if let host = DesktopApp.detect(env: env, chain: envelope.processChain) {
+            desktop = host
+            appBundlePath = host.bundlePath
+            bundleID = host.app.bundleID
+        }
     }
 
     /// Keep previously learned identifiers when a later event lacks them.
@@ -126,6 +133,7 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         m.orcaPane = orcaPane ?? old.orcaPane
         m.orcaTerminal = orcaTerminal ?? old.orcaTerminal
         m.agentPID = agentPID ?? old.agentPID
+        m.desktop = desktop ?? old.desktop
         return m
     }
 }

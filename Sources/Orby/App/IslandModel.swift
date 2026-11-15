@@ -580,7 +580,8 @@ final class IslandModel: ObservableObject {
         remindUnanswered(now: now)
         let ttl = Prefs.double(PrefKey.finishedSessionTTLMinutes) * 60
         let before = engine.sessions.count
-        release(engine.prune(doneTTL: ttl, isAlive: ProcessTree.isAlive), reason: "pruned")
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        release(engine.prune(doneTTL: ttl, isAlive: ProcessTree.isAlive, isAppRunning: running.contains), reason: "pruned")
         guard engine.sessions.count != before else { return }
         lastTranscriptRead = lastTranscriptRead.filter { engine.sessions[$0.key] != nil }
         transcripts = transcripts.filter { engine.sessions[$0.key] != nil }
