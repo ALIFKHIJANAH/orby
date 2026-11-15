@@ -81,6 +81,8 @@ public let terminalEnvKeys: [String] = [
     "__CFBundleIdentifier", "VSCODE_PID", "CURSOR_TRACE_ID",
     // Orca: which tab/pane hosts the agent, for `orca terminal switch`; the handle links orchestration workers.
     "ORCA_TAB_ID", "ORCA_AGENT_PANE", "ORCA_TERMINAL_HANDLE",
+    // Claude Desktop's Code tab sets "claude-desktop"; such sessions have no terminal.
+    "CLAUDE_CODE_ENTRYPOINT",
 ]
 
 public let wireJSONEncoder: JSONEncoder = {

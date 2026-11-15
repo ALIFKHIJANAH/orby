@@ -417,10 +417,12 @@ public struct SessionEngine: Sendable {
     }
 
     /// Drop sessions whose agent process exited, and finished sessions older than `doneTTL`.
-    public mutating func prune(now: Date = Date(), doneTTL: TimeInterval, isAlive: (Int32) -> Bool) -> [String] {
+    public mutating func prune(
+        now: Date = Date(), doneTTL: TimeInterval, isAlive: (Int32) -> Bool, isAppRunning: (String) -> Bool = { _ in true }
+    ) -> [String] {
         var cancelled: [String] = []
         for (key, s) in sessions {
-            let dead = s.terminal.agentPID.map { !isAlive($0) } ?? false
+            let dead = s.terminal.hostIsGone(isAlive: isAlive, isAppRunning: isAppRunning)
             let stale = !s.phase.needsUser && s.phase.group != .working && now.timeIntervalSince(s.updatedAt) > doneTTL
             if dead || stale { cancelled += remove(sessionKey: key) }
         }
