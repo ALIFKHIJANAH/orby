@@ -21,7 +21,7 @@ public enum PluginInstaller {
         case .opencode: AgentPluginSource.openCode
         case .pi: AgentPluginSource.pi
         case .commandcode: AgentPluginSource.commandCode
-        case .claude, .codex, .antigravity, .qwen: nil
+        case .claude, .codex, .antigravity, .qwen, .droid, .kimi, .gemini, .copilot: nil
         }
     }
 

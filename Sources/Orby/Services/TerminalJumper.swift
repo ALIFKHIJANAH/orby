@@ -22,16 +22,29 @@ enum TerminalJumper {
     ]
 
     static func jump(to session: AgentSession) {
+        if let target = session.desktopJumpTarget {
+            DispatchQueue.main.async { open(target) }
+            return
+        }
         let t = session.terminal
         let cwd = session.cwd
         DispatchQueue.global(qos: .userInitiated).async {
-            var bundleID = t.bundleID ?? t.termProgram.flatMap { termProgramBundles[$0] }
+            // cmux sets TERM_PROGRAM=ghostty; that must not send the jump to Ghostty itself.
+            var bundleID = t.bundleID ?? (t.cmuxSurface == nil ? t.termProgram.flatMap { termProgramBundles[$0] } : nil)
             if t.kittyWindowID != nil, bundleID == nil { bundleID = "net.kovidgoyal.kitty" }
 
             if let pane = t.tmuxPane {
                 let clientApp = selectTmuxPane(pane, socket: t.tmuxSocket)
                 // Inside tmux the process chain ends at the tmux server; the client knows the terminal.
                 if let clientApp { bundleID = clientApp }
+            }
+            if let args = TerminalJump.zellijArgs(t), let zellij = zellijPath() {
+                // Like tmux, the chain ends at the zellij server; the env still names the host terminal.
+                run(zellij, args)
+            }
+            if let requests = TerminalJump.cmuxRequests(t) {
+                let socket = TerminalJump.cmuxSocketPath(t)
+                for r in requests where !(TerminalJump.sendLine(r, toSocket: socket).map(TerminalJump.cmuxReplyOK) ?? false) { break }
             }
             if t.orcaTabID != nil || t.orcaPane != nil {
                 switchOrcaTab(tab: t.orcaTabID, pane: t.orcaPane, appPath: t.appBundlePath)
@@ -52,6 +65,9 @@ enum TerminalJumper {
                 if let id = t.kittyWindowID, let listen = t.kittyListenOn {
                     run("/usr/bin/env", ["kitty", "@", "--to", listen, "focus-window", "--match", "id:\(id)"])
                 }
+            case TerminalJump.ghosttyBundleID where t.tmuxPane == nil && t.zellijPane == nil && t.cmuxSurface == nil:
+                // Ghostty < 1.3 has no scripting dictionary; osascript then fails and we just activate.
+                if let script = TerminalJump.ghosttyScript(cwd: cwd), run("/usr/bin/osascript", ["-e", script]) != nil { return }
             case "com.github.wez.wezterm":
                 if let pane = t.weztermPane { run("/usr/bin/env", ["wezterm", "cli", "activate-pane", "--pane-id", pane]) }
             case let id? where folderFocusedApps.contains(id) && !cwd.isEmpty:
@@ -70,6 +86,21 @@ enum TerminalJumper {
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: config)
+    }
+
+    /// Desktop apps have no tab to find; a URL lands on the conversation, else just activate.
+    @MainActor
+    private static func open(_ target: JumpTarget) {
+        switch target {
+        case .activate(let bundleID):
+            activate(bundleID: bundleID)
+        case .url(let url):
+            // Open with Codex itself so another app claiming the scheme can't intercept it.
+            guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: DesktopApp.codex.bundleID) else { return }
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.open([url], withApplicationAt: app, configuration: config)
+        }
     }
 
     @MainActor
@@ -100,6 +131,12 @@ enum TerminalJumper {
             }
         }
         return nil
+    }
+
+    private static func zellijPath() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return ["/opt/homebrew/bin/zellij", "/usr/local/bin/zellij", home + "/.cargo/bin/zellij", "/run/current-system/sw/bin/zellij"]
+            .first(where: FileManager.default.isExecutableFile)
     }
 
     /// Orca hosts many agents in tabs; its CLI can bring one to the front. The terminal list's

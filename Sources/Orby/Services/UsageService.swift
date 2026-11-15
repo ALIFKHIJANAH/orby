@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import NotchCore
 import NotchShared
@@ -23,10 +24,14 @@ final class UsageService: ObservableObject {
     /// Set when `agy /usage` timed out, which is what a pending browser sign-in looks like.
     private var antigravityPaused = false
     private let presence = UserPresence()
+    private let notifier = UsageNotifier()
+    private var alertWatch: AnyCancellable?
 
     var limits: [RateLimits] { [claudeLimits, codexLimits, antigravityLimits].compactMap { $0 } }
 
     func start() {
+        alertWatch = Publishers.CombineLatest3($claudeLimits, $codexLimits, $antigravityLimits)
+            .sink { [weak self] c, x, a in self?.notifier.check([c, x, a].compactMap { $0 }) }
         refreshLocal()
         refreshClaudeIfEnabled()
         refreshAntigravityIfEnabled()

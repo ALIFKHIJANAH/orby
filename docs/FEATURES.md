@@ -29,7 +29,7 @@ agent (claude, codex, …)
 
 | Feature | Vibe Island | AgentNotch | Orby |
 |---|---|---|---|
-| **Agents** | 30 (Claude Code, Codex, Gemini CLI, Cursor, OpenCode, Droid, Copilot, Kiro, Amp, Qwen, Kimi, DeepSeek, …) | ~12 (Claude Code, Codex, Cursor, Kimi, OpenCode, Cowork, Antigravity, Pi, LM Studio, Hermes, herdr) | ✅ Claude Code, ✅ Codex, ✅ Qwen Code (hooks), ✅ OpenCode 1.x (plugin), ✅ Command Code (hooks + mod), ✅ Pi (extension; status only), ✅ Antigravity (hooks; prompts answered by typing into its terminal), ✅ Cursor (via Claude hooks; status only) |
+| **Agents** | 30 (Claude Code, Codex, Gemini CLI, Cursor, OpenCode, Droid, Copilot, Kiro, Amp, Qwen, Kimi, DeepSeek, …) | ~12 (Claude Code, Codex, Cursor, Kimi, OpenCode, Cowork, Antigravity, Pi, LM Studio, Hermes, herdr) | ✅ Claude Code, ✅ Codex, ✅ Qwen Code (hooks), ✅ OpenCode 1.x (plugin), ✅ Command Code (hooks + mod), ✅ Pi (extension; status only), ✅ Antigravity (hooks; prompts answered by typing into its terminal), ✅ Cursor (via Claude hooks; status only), ✅ Gemini CLI (hooks; JSONC-safe edit of settings.json; prompts as alerts), ✅ GitHub Copilot CLI (hooks; approvals opt-in), ✅ Factory Droid (hooks; status + permission alerts), ✅ Kimi Code CLI (TOML block; observe-only prompts), ✅ Claude Desktop / Codex app sessions (no terminal; jump activates the app or opens `codex://threads/<id>`) |
 | Notch panel; floating bar on non-notch / external displays | ✅ | ✅ | ✅ |
 | Non-activating overlay (never steals focus) | ✅ | ✅ | ✅ |
 | Hover / click to expand, auto-collapse on leave | ✅ | ✅ | ✅ |
@@ -50,12 +50,12 @@ agent (claude, codex, …)
 | Answer AskUserQuestion (single, multi-select, multiple questions, free text) | ✅ | ✅ (Reply) | ✅ |
 | Plan review with Markdown + feedback | ✅ | ✅ (plan ready alert) | ✅ (Approve, Approve + auto-edit, send feedback) |
 | Detect "answered in terminal" and clear the card | ✅ | ? | ✅ (bridge EOF + PostToolUse matching) |
-| Click to jump to exact tab/pane | ✅ iTerm2, Terminal, Ghostty, Warp, WezTerm, Kitty, tmux, Zellij, IDEs | ✅ Ghostty, iTerm2, Warp, VS Code, Conductor | ✅ iTerm2 (session), Terminal (tty), tmux (pane), Kitty, WezTerm, VS Code/Cursor/Windsurf/Zed (folder window); others: app activation |
+| Click to jump to exact tab/pane | ✅ iTerm2, Terminal, Ghostty, Warp, WezTerm, Kitty, tmux, Zellij, IDEs | ✅ Ghostty, iTerm2, Warp, VS Code, Conductor | ✅ iTerm2 (session), Terminal (tty), tmux (pane), Zellij (pane), cmux (surface; needs cmux Automation mode), Ghostty 1.3 (AppleScript, when one terminal is in the folder), Kitty, WezTerm, VS Code/Cursor/Windsurf/Zed (folder window), Claude Desktop, Codex app; Warp: app activation only (no tab API) |
 | Don't pop up when the agent's terminal is already focused | ✅ | — | ✅ |
 | Sounds per event | ✅ 8-bit + sound packs, quiet hours | ✅ 5 sounds, per-event | ✅ synthesized 8-bit, macOS sounds, custom folder; per-event toggles + preview |
-| Quiet rules, reminders, context alert | ◐ quiet hours | — | ✅ quiet hours, mute while locked, replay the cue for unanswered requests after 2/5/10 min, cue at 85% context, long-quiet working sessions tint their time |
+| Quiet rules, reminders, context alert | ◐ quiet hours | — | ✅ quiet hours, mute while locked, follow macOS Focus (sounds; needs a one-time permission from Settings), replay the cue for unanswered requests after 2/5/10 min, cue at 85% context, long-quiet working sessions tint their time |
 | Plan usage limits | ✅ Claude, Codex, Kimi, GLM, DeepSeek | ✅ Claude, Codex, Cursor, Kimi, OpenCode Go | ✅ Codex (local logs), ✅ Claude (opt-in, Claude Code sign-in), ✅ Antigravity (opt-in: agy status line relay, or `agy -p /usage`) |
-| Usage alerts / pace / early-empty countdown | ✅ threshold alerts | ✅ pace tick, 85% line | ◐ 85% danger line, reset countdown |
+| Usage alerts / pace / early-empty countdown | ✅ threshold alerts | ✅ pace tick, 85% line | ◐ macOS notification at 80% and 95% per limit window (first reading is a baseline, re-arms after a reset), 85% danger line, reset countdown; no pace warning yet |
 | Token history (day/7d/30d, per provider) | ✅ | ✅ | ✅ 7-day chart stacked per agent (Claude, Codex, OpenCode, Antigravity, Qwen, Pi, Command Code); tail-only scan of JSONL, read-only SQLite |
 | Menu bar list of agents | — | ✅ | ✅ |
 | Zero-config setup | ✅ auto on first launch | ✅ | ◐ one-click Connect per agent (+ optional auto-configure); backups before every change |
@@ -64,29 +64,35 @@ agent (claude, codex, …)
 | Launch at login | ✅ | ✅ | ✅ |
 | Notch size fine-tuning, panel width | ✅ | — | ✅ |
 | Appearance themes (glass, colors, gauges) | ✅ | ✅ | — |
-| Multi-display at once | ✅ | ✅ | — (choose built-in or main display) |
+| Multi-display at once | ✅ | ✅ | ✅ "Every display" (one island per screen; only the one under the pointer opens) and "Menu bar only" |
+| Keep the Mac awake while agents work | — | — | ✅ IOPM idle-sleep assertion while any session works (off by default) |
+| Several Claude config folders | — | — | ✅ extra folders in Settings → Integrations; Connect/remove apply to each |
 | SSH remote servers / Docker | ✅ | — | — |
 | iPhone push (Bark), Apple Watch | ✅ | — | — |
-| Session switcher shortcut (Alfred-style) | ✅ | — | — |
-| Hide sessions by directory / prompt filters | ✅ | — | — |
+| Global "jump to what needs me" shortcut | ✅ | — | ✅ ⌃⌥J (off by default): opens a request answerable in the notch, else the terminal of the session waiting longest, else the last unread finished one |
+| Session switcher shortcut (Alfred-style) | ✅ | — | ✅ ⌃⌥S (off by default): type to filter, arrows + Return to jump |
+| Hide sessions by directory / prompt filters | ✅ | — | ✅ folder prefixes and first-prompt text; hidden sessions stay silent but their approvals/questions/plans still show |
 | AI session naming | ✅ (experimental) | — | — |
 | Cloud agents (Cursor) | — | ✅ | — |
 | Localization | 11 languages | English | English |
-| Auto-update | Sparkle, Homebrew | in-app | — |
+| Auto-update | Sparkle, Homebrew | in-app | ◐ daily check of GitHub Releases (on by default, toggle in Settings → About), "Download Orby X.Y.Z" in Settings and the menu bar; install is manual until the app is notarized |
 | Price | $19.99 one-time | $9.99 one-time | free (yours) |
 
 ## Roadmap (ordered by value)
 
-1. More agents (see [research/agent-integrations.md](research/agent-integrations.md)): Factory Droid, GitHub Copilot CLI, Gemini CLI (needs a JSONC-safe writer), Kimi Code CLI (TOML), OpenCode 2.x plugin API, Cursor's own `hooks.json`, Antigravity approvals via `PreToolUse` `auto_approve`.
-2. Session filters (hide by directory / first prompt) and a global switcher shortcut.
-3. Multi-display, appearance themes, reduce motion.
-4. Focus-aware muting; usage threshold alerts.
+1. Verify the 2026-11-15 wave against real installs (all built from docs or read-only inspection, unit-tested, not run live):
+   Gemini CLI (payloads from docs; BeforeTool vs prompt ordering), Copilot CLI (shapes read from app.js 1.0.29; socket/sandbox and timeout behaviour),
+   Factory Droid and Kimi Code (not installed; Kimi PermissionRequest/PermissionResult fields, Droid tool arg names),
+   Codex app (bundle id, URL scheme and thread-id mapping assumed; Claude Desktop was checked), Ghostty/Zellij/cmux jumps (none installed),
+   Focus permission in the ad-hoc signed bundle (may need an entitlement), switcher/filters/keep-awake UI by hand, display hot-plug.
+2. More agents: OpenCode 2.x plugin API, Cursor's own `hooks.json`, Antigravity approvals via `PreToolUse` `auto_approve`; brand logos and transcript parsing for Gemini, Copilot, Droid, Kimi.
+3. Appearance themes; usage pace warning (needs each window's length).
    Future opt-in plan limits (see [research/agent-usage.md](research/agent-usage.md)), each off by default behind its own toggle:
    OpenCode Go (`opencode.ai/zen/go/v1/usage`, API key from OpenCode's `auth.json`), Command Code
    (`api.commandcode.ai/alpha/...`, API key), Cursor (unofficial dashboard API, full session token).
    Claude limits could also stay local through the same status line relay Antigravity uses
    (`orby-bridge --statusline`, which wraps the user's own `statusLine` command).
-   Cursor keeps no token counts on disk and Gemini CLI has no Orby integration yet, so neither
-   has a token history.
+4. Published idle CPU / RAM numbers (measure with Instruments).
 5. SSH remote: run the bridge on a server and forward the socket with `ssh -R`.
-6. Sparkle updates + Developer ID signing / notarization.
+6. Phone push (ntfy/Bark, opt-in), localization (zh-Hans first).
+7. Sparkle updates + Developer ID signing / notarization (blocked: no Developer ID yet; the GitHub release check covers discovery meanwhile).

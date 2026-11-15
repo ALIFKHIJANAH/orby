@@ -67,6 +67,15 @@ public struct BridgeReply: Codable, Sendable {
 /// Events for which the agent waits on hook stdout for a decision.
 public let blockingEvents: Set<String> = ["PermissionRequest"]
 
+/// Agents whose PermissionRequest hook is observe-only (Kimi Code ignores its output and
+/// doesn't wait for it), so the bridge reports it and exits instead of blocking.
+public let observeOnlySources: Set<String> = ["kimi"]
+
+/// True when the bridge should wait for the app's decision on this event.
+public func expectsReply(source: String, event: String) -> Bool {
+    blockingEvents.contains(event) && !observeOnlySources.contains(source)
+}
+
 /// What an Antigravity hook prints when Orby has no opinion. Antigravity requires a
 /// `decision` from PreToolUse; "allow" defers to the next hook or the user's own policy.
 public func antigravityPassthrough(event: String) -> JSONValue {
@@ -81,6 +90,10 @@ public let terminalEnvKeys: [String] = [
     "__CFBundleIdentifier", "VSCODE_PID", "CURSOR_TRACE_ID",
     // Orca: which tab/pane hosts the agent, for `orca terminal switch`; the handle links orchestration workers.
     "ORCA_TAB_ID", "ORCA_AGENT_PANE", "ORCA_TERMINAL_HANDLE",
+    // Claude Desktop's Code tab sets "claude-desktop"; such sessions have no terminal.
+    "CLAUDE_CODE_ENTRYPOINT",
+    // Zellij pane and cmux workspace/surface/socket, for precise jumps.
+    "ZELLIJ_PANE_ID", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_SOCKET_PATH",
 ]
 
 public let wireJSONEncoder: JSONEncoder = {

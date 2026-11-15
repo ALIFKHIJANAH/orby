@@ -30,6 +30,9 @@ public struct SessionEngine: Sendable {
         public var startedSubagent: String?
     }
 
+    /// Answer Copilot CLI's permission hook from the notch (a setting, off by default).
+    public var copilotApprovals = false
+
     public init() {}
 
     public static func sessionKey(source: String, sessionID: String) -> String { "\(source):\(sessionID)" }
@@ -43,8 +46,10 @@ public struct SessionEngine: Sendable {
             switch agent {
             case .antigravity: AntigravityPayload.normalized(env.payload)
             case .claude, .codex, .unknown: env.payload
-            case .opencode, .pi, .commandcode, .qwen: ToolAliases.normalized(env.payload)
+            case .opencode, .pi, .commandcode, .qwen, .droid, .kimi: ToolAliases.normalized(env.payload)
             case .cursor: CursorPayload.normalized(env.payload)
+            case .gemini: GeminiPayload.normalized(env.payload)
+            case .copilot: CopilotPayload.normalized(env.payload, approvals: copilotApprovals)
             }
         let key = Self.sessionKey(source: agent.rawValue, sessionID: sid)
         out.sessionKey = key
@@ -77,6 +82,7 @@ public struct SessionEngine: Sendable {
             if let prompt, !prompt.isEmpty {
                 s.lastPrompt = prompt
                 if s.title == nil { s.title = ToolDescriber.firstLine(prompt, max: 80) }
+                if s.firstPrompt == nil { s.firstPrompt = prompt }
             }
             s.phase = .thinking
             s.activity = nil
@@ -118,7 +124,9 @@ public struct SessionEngine: Sendable {
             let tool = p["tool_name"]?.string
             let input = p["tool_input"]
             out.cancelledRequests = cancelPending {
-                $0.sessionKey == key && $0.toolName == tool && (input == nil || $0.toolInput == input)
+                $0.sessionKey == key && $0.toolName == tool
+                    // A prompt seen only as a notification may describe the call more loosely.
+                    && (input == nil || $0.toolInput == input || ($0.kind == .external && $0.step == nil))
             }
             if !scope.isEmpty {
                 touchSubagent(scope, p, in: &s, now: now, out: &out) { $0.activity = nil }
@@ -133,13 +141,24 @@ public struct SessionEngine: Sendable {
         case "PermissionRequest":
             let tool = p["tool_name"]?.string ?? "Tool"
             let input = p["tool_input"] ?? .object([:])
+            // Kimi only reports its prompt; it's answered in its own terminal.
+            let observed = !env.expectsReply && observeOnlySources.contains(agent.rawValue)
             let kind: RequestKind =
                 switch tool {
+                case _ where observed: .external
                 case "AskUserQuestion": .question
                 case "ExitPlanMode": .plan
                 default: .permission
                 }
-            if env.expectsReply {
+            if observed {
+                out.cancelledRequests = cancelPending { $0.sessionKey == key && $0.agentScope == scope }
+                let id = Self.observedID(key: key, toolCallID: p["tool_call_id"]?.string ?? env.id)
+                var request = PendingRequest(
+                    id: id, sessionKey: key, kind: .external, toolName: tool, toolInput: input,
+                    summary: ToolDescriber.describe(tool: tool, input: input), suggestions: [], receivedAt: now)
+                request.agentScope = scope
+                pending.insert(request, at: 0)
+            } else if env.expectsReply {
                 // An agent shows one permission prompt at a time: a new request supersedes any
                 // older one still listed, which would otherwise take clicks meant for this one.
                 out.cancelledRequests = cancelPending { $0.sessionKey == key && $0.agentScope == scope }
@@ -159,7 +178,7 @@ public struct SessionEngine: Sendable {
                 }
             let activity = ToolDescriber.activity(tool: tool, input: input)
             s.activity = activity
-            s.attention = kind == .permission ? "Wants to \(activity.intent)" : activity.progressive
+            s.attention = kind == .permission || observed ? "Wants to \(activity.intent)" : activity.progressive
             if !scope.isEmpty { touchSubagent(scope, p, in: &s, now: now, out: &out) { $0.activity = activity } }
             out.cue =
                 switch kind {
@@ -169,12 +188,23 @@ public struct SessionEngine: Sendable {
                 }
             out.reveal = .attention(key)
 
+        case "PermissionResult":
+            // Kimi's prompt was answered in its terminal. The id is only matched when both events carry one.
+            let id = p["tool_call_id"]?.string.map { Self.observedID(key: key, toolCallID: $0) }
+            let exact = pending.contains { $0.id == id }
+            out.cancelledRequests = cancelPending { $0.sessionKey == key && $0.kind == .external && (!exact || $0.id == id) }
+            if !hasPending(key) {
+                s.phase = .working
+                s.attention = nil
+            }
+
         case "Notification":
             switch p["notification_type"]?.string {
             case "permission_prompt" where !hasPending(key):
                 // Agent is asking in the terminal (e.g. we weren't running when it started).
                 s.phase = .needsApproval
                 s.attention = p["message"]?.string.map { PlainText.summary($0, max: 120) } ?? s.attention
+                if agent.promptsInTerminalOnly { addTerminalPrompt(id: env.id, p, to: &s, now: now) }
                 out.cue = .approval
                 out.reveal = .attention(key)
             case "idle_prompt":
@@ -296,6 +326,9 @@ public struct SessionEngine: Sendable {
 
     static func externalID(logID: String, step: Int) -> String { "agy:\(logID):\(step)" }
 
+    /// Id of a prompt an observe-only agent (Kimi) reported, stable across its PermissionResult.
+    static func observedID(key: String, toolCallID: String) -> String { "observed:\(key):\(toolCallID)" }
+
     /// A PreToolUse arrived: attach a parked prompt for this step, or refresh one already shown.
     private mutating func attachExternalPrompt(step: Int, to s: inout AgentSession, now: Date, out: inout Outcome) {
         guard s.agent == .antigravity else { return }
@@ -339,6 +372,26 @@ public struct SessionEngine: Sendable {
         out.sessionKey = s.id
         out.cue = .approval
         out.reveal = .attention(s.id)
+    }
+
+    // MARK: Terminal-only prompts (Gemini CLI, Copilot CLI)
+
+    /// The agent told a notification hook it is asking in its terminal. The prompt is about the
+    /// last tool call seen, unless the notification names a different one.
+    private mutating func addTerminalPrompt(id: String, _ p: JSONValue, to s: inout AgentSession, now: Date) {
+        let named = p["tool_name"]?.string
+        let hint = p["tool_input"]?.object ?? [:]
+        let last = s.lastToolInput?.object ?? [:]
+        let useLast = s.lastToolName != nil && (named == nil || (named == s.lastToolName && hint.allSatisfy { last[$0.key] == $0.value }))
+        let tool = useLast ? s.lastToolName! : named ?? "Tool"
+        let input = useLast ? s.lastToolInput ?? .object([:]) : p["tool_input"] ?? .object([:])
+        let request = PendingRequest(
+            id: id, sessionKey: s.id, kind: .external, toolName: tool, toolInput: input,
+            summary: ToolDescriber.describe(tool: tool, input: input), suggestions: [], receivedAt: now)
+        pending.insert(request, at: 0)
+        let activity = ToolDescriber.activity(tool: tool, input: input)
+        s.activity = activity
+        s.attention = "Wants to \(activity.intent)"
     }
 
     public func hasPending(_ sessionKey: String) -> Bool { pending.contains { $0.sessionKey == sessionKey } }
@@ -417,10 +470,12 @@ public struct SessionEngine: Sendable {
     }
 
     /// Drop sessions whose agent process exited, and finished sessions older than `doneTTL`.
-    public mutating func prune(now: Date = Date(), doneTTL: TimeInterval, isAlive: (Int32) -> Bool) -> [String] {
+    public mutating func prune(
+        now: Date = Date(), doneTTL: TimeInterval, isAlive: (Int32) -> Bool, isAppRunning: (String) -> Bool = { _ in true }
+    ) -> [String] {
         var cancelled: [String] = []
         for (key, s) in sessions {
-            let dead = s.terminal.agentPID.map { !isAlive($0) } ?? false
+            let dead = s.terminal.hostIsGone(isAlive: isAlive, isAppRunning: isAppRunning)
             let stale = !s.phase.needsUser && s.phase.group != .working && now.timeIntervalSince(s.updatedAt) > doneTTL
             if dead || stale { cancelled += remove(sessionKey: key) }
         }
@@ -432,5 +487,14 @@ public struct SessionEngine: Sendable {
         sessions.values.sorted {
             ($0.phase.group, $1.updatedAt) < ($1.phase.group, $0.updatedAt)
         }
+    }
+}
+
+extension SessionEngine {
+    /// Where the "jump to what needs me" shortcut goes: the session waiting longest for you,
+    /// else the latest one that finished unread.
+    public static func jumpTarget(_ sessions: [AgentSession]) -> AgentSession? {
+        sessions.filter(\.phase.needsUser).min { $0.updatedAt < $1.updatedAt }
+            ?? sessions.filter { $0.unread && $0.phase.group == .finished }.max { $0.updatedAt < $1.updatedAt }
     }
 }

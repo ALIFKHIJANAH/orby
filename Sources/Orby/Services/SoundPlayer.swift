@@ -25,12 +25,13 @@ final class SoundPlayer {
         }
     }
 
-    /// Nobody is there to hear it (screen locked), or the user asked for quiet at this hour.
+    /// Nobody is there to hear it (screen locked), the user asked for quiet at this hour, or a Focus is on.
     private var muted: Bool {
-        if screenLocked && Prefs.bool(PrefKey.muteWhenLocked) { return true }
-        guard Prefs.bool(PrefKey.quietHoursEnabled) else { return false }
-        return QuietHours.contains(
-            Date(), start: Prefs.defaults.integer(forKey: PrefKey.quietHoursStart), end: Prefs.defaults.integer(forKey: PrefKey.quietHoursEnd))
+        let window = Prefs.bool(PrefKey.quietHoursEnabled)
+            ? (start: Prefs.defaults.integer(forKey: PrefKey.quietHoursStart), end: Prefs.defaults.integer(forKey: PrefKey.quietHoursEnd)) : nil
+        let followFocus = Prefs.bool(PrefKey.followFocus)
+        let rules = QuietRules(muteWhenLocked: Prefs.bool(PrefKey.muteWhenLocked), quietHours: window, followFocus: followFocus)
+        return rules.silencesSounds(at: Date(), screenLocked: screenLocked, focusOn: followFocus ? FocusStatus.isFocused : nil)
     }
 
     func play(_ cue: SoundCue, preview: Bool = false) {

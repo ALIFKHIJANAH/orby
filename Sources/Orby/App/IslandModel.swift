@@ -8,6 +8,8 @@ enum ExpansionReason: Equatable {
     case hover, click, attention, completion
     /// The new-agent launcher: stays open when the mouse leaves, since you may be typing.
     case compose
+    /// The session switcher: keyboard-driven, so it also stays open when the mouse leaves.
+    case switcher
 }
 
 enum IslandTab: String {
@@ -75,11 +77,22 @@ final class IslandModel: ObservableObject {
     private var contextWarned: Set<String> = []
     /// Requests whose reminder cue has played.
     private var reminded: Set<String> = []
+    /// Session switcher: open in place of the list, with what's typed and the highlighted row.
+    @Published private(set) var switching = false {
+        didSet { if switching != oldValue { updateHotKeys() } }
+    }
+    @Published var switcherQuery = "" {
+        didSet { if switcherQuery != oldValue { switcherSelection = 0 } }
+    }
+    @Published var switcherSelection = 0
+    /// Hide rules from Settings, re-read when defaults change.
+    private var sessionFilter = Prefs.sessionFilter
     /// ⌘1…⌘9 presses while a question is open, as zero-based option indexes.
     let optionShortcut = PassthroughSubject<Int, Never>()
 
     let usage = UsageService()
     let sound = SoundPlayer()
+    let keepAwake = KeepAwakeService()
 
     private var engine = SessionEngine()
     private var connections: [String: BridgeConnection] = [:]
@@ -104,14 +117,20 @@ final class IslandModel: ObservableObject {
             .sink { [weak self] _ in
                 self?.updateIdleTab()
                 self?.updateLaunchHotKey()
+                self?.updateJumpHotKey()
+                self?.updateKeepAwake()
+                self?.updateSwitcherHotKey()
+                self?.reloadSessionFilter()
             }
         updateLaunchHotKey()
+        updateJumpHotKey()
+        updateSwitcherHotKey()
         // No hooks fire while the model reasons, so poll the transcript for its thoughts, and for
         // an Esc in the terminal, which ends the turn without a Stop hook.
         thinkingTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                for s in self.sessions where s.phase.group == .working { self.refreshTranscript(s.id, force: true) }
+                for s in self.engine.sessions.values where s.phase.group == .working { self.refreshTranscript(s.id, force: true) }
             }
         }
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
@@ -133,6 +152,7 @@ final class IslandModel: ObservableObject {
         }
         let before = Set(engine.pending.map(\.id))
         let known = Set(engine.sessions.keys)
+        engine.copilotApprovals = Prefs.bool(PrefKey.copilotApprovals)
         var outcome = engine.handle(envelope)
         logNewExternalPrompts(since: before)
 
@@ -166,9 +186,84 @@ final class IslandModel: ObservableObject {
             if let id = outcome.startedSubagent { loadSubagentMeta(id, in: key) }
             if !known.contains(key) { spotLaunched(s) }
         }
+        if let key = outcome.sessionKey, isHidden(key) { quietHidden(&outcome) }
         if let cue = outcome.cue { sound.play(cue) }
         if let reveal = outcome.reveal { handleReveal(reveal) }
         publish()
+    }
+
+    // MARK: Hidden sessions
+
+    func isHidden(_ key: String) -> Bool {
+        guard !sessionFilter.isEmpty, let s = engine.sessions[key] else { return false }
+        return sessionFilter.hides(s)
+    }
+
+    /// A hidden session stays silent and never opens the notch, except for what blocks the agent:
+    /// an approval, question or plan still chimes and opens the notch like any other, because a
+    /// request nobody sees would leave the agent stuck with no sign of why.
+    private func quietHidden(_ outcome: inout SessionEngine.Outcome) {
+        if case .completed = outcome.reveal { outcome.reveal = nil }
+        switch outcome.cue {
+        case .approval, .question, .plan, nil: break
+        case .done, .error, .start, .context: outcome.cue = nil
+        }
+    }
+
+    private func reloadSessionFilter() {
+        let filter = Prefs.sessionFilter
+        guard filter != sessionFilter else { return }
+        sessionFilter = filter
+        publish()
+    }
+
+    // MARK: Session switcher
+
+    /// The switcher's rows for what's typed so far.
+    var switcherEntries: [AgentSession] { SessionSwitcher.entries(sessions, query: switcherQuery) }
+
+    func openSwitcher() {
+        composing = false
+        switcherQuery = ""
+        switcherSelection = 0
+        tab = .sessions
+        switching = true
+        expand(.switcher)
+    }
+
+    func closeSwitcher() {
+        guard switching else { return }
+        collapse()
+    }
+
+    func moveSwitcherSelection(by step: Int) {
+        switcherSelection = SessionSwitcher.move(switcherSelection, by: step, count: switcherEntries.count)
+    }
+
+    /// Return: a request that can be answered here opens in the notch; anything else brings up
+    /// the session's terminal.
+    func switchToSelected() {
+        let entries = switcherEntries
+        guard entries.indices.contains(switcherSelection) else { return }
+        let s = entries[switcherSelection]
+        switching = false
+        if let i = pending.firstIndex(where: { $0.sessionKey == s.id && $0.kind != .external }) {
+            selectedRequestIndex = i
+            expansion = .click
+            mouseHasEntered = true
+            return
+        }
+        engine.markRead(sessionKey: s.id)
+        publish()
+        TerminalJumper.jump(to: s)
+        collapse()
+    }
+
+    /// Preview renderer only: open the switcher with something typed.
+    func previewSwitcher(query: String, selection: Int) {
+        openSwitcher()
+        switcherQuery = query
+        switcherSelection = selection
     }
 
     // MARK: Starting an agent
@@ -179,6 +274,7 @@ final class IslandModel: ObservableObject {
         if launchDraft.prompt.isEmpty || launchDraft.folder.isEmpty { launchDraft = freshDraft() }
         launchError = nil
         tab = .sessions
+        switching = false
         composing = true
         expand(.compose)
         guard !PreviewRenderer.active, LaunchTerminal.orca.isInstalled else { return }
@@ -346,7 +442,9 @@ final class IslandModel: ObservableObject {
     func loadExternalMenu(_ request: PendingRequest) {
         // One read at a time: a screen read spawns osascript or tmux and can outlast the poll.
         guard request.kind == .external, Prefs.bool(PrefKey.antigravityAnswerFromNotch), answering[request.id] == nil,
-            !readingMenus.contains(request.id), let session = session(for: request.sessionKey)
+            !readingMenus.contains(request.id), let session = session(for: request.sessionKey),
+            // Only Antigravity's menu is understood; other agents' prompts are answered in their terminal.
+            session.agent == .antigravity
         else { return }
         let terminal = session.terminal
         let id = request.id
@@ -517,7 +615,8 @@ final class IslandModel: ObservableObject {
         RequestLog.write(
             connection == nil ? "decided-no-bridge(\(RequestLog.label(decision)))" : "decided(\(RequestLog.label(decision)))",
             id: request.id, session: request.sessionKey, tool: request.toolName)
-        connection?.reply(BridgeReply(stdout: decision.hookOutput()))
+        let agent = engine.sessions[request.sessionKey]?.agent ?? .claude
+        connection?.reply(BridgeReply(stdout: decision.hookOutput(for: agent)))
         publish()
         collapseIfIdle()
     }
@@ -578,7 +677,8 @@ final class IslandModel: ObservableObject {
         remindUnanswered(now: now)
         let ttl = Prefs.double(PrefKey.finishedSessionTTLMinutes) * 60
         let before = engine.sessions.count
-        release(engine.prune(doneTTL: ttl, isAlive: ProcessTree.isAlive), reason: "pruned")
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        release(engine.prune(doneTTL: ttl, isAlive: ProcessTree.isAlive, isAppRunning: running.contains), reason: "pruned")
         guard engine.sessions.count != before else { return }
         lastTranscriptRead = lastTranscriptRead.filter { engine.sessions[$0.key] != nil }
         transcripts = transcripts.filter { engine.sessions[$0.key] != nil }
@@ -607,7 +707,7 @@ final class IslandModel: ObservableObject {
 
     /// One cue when a session's context crosses 85%; it can warn again after compaction frees space.
     private func checkContext(_ key: String, before: Double) {
-        guard let after = engine.sessions[key]?.contextPercent else { return }
+        guard let after = engine.sessions[key]?.contextPercent, !isHidden(key) else { return }
         if after < Self.contextWarning {
             contextWarned.remove(key)
         } else if before < Self.contextWarning, contextWarned.insert(key).inserted {
@@ -648,10 +748,11 @@ final class IslandModel: ObservableObject {
 
     private func publish() {
         // Assigning an equal value still fires objectWillChange and re-renders every observer.
-        let ordered = engine.orderedSessions
+        let ordered = engine.orderedSessions.filter { sessionFilter.isEmpty || !sessionFilter.hides($0) }
         if ordered != sessions { sessions = ordered }
         if engine.pending != pending { pending = engine.pending }
         updateIdleTab()
+        updateKeepAwake()
         let live = Set(pending.map(\.id))
         if externalMenus.keys.contains(where: { !live.contains($0) }) { externalMenus = externalMenus.filter { live.contains($0.key) } }
         if answering.keys.contains(where: { !live.contains($0) }) { answering = answering.filter { live.contains($0.key) } }
@@ -670,7 +771,9 @@ final class IslandModel: ObservableObject {
         collapseWork?.cancel()
         clearHeadphoneBanner()
         // A request arriving while you type in the launcher waits behind it (the header counts it).
-        if expansion == nil || reason == .compose || reason == .attention && expansion != .compose { expansion = reason }
+        if expansion == nil || reason == .compose || reason == .switcher || reason == .attention && expansion != .compose && expansion != .switcher {
+            expansion = reason
+        }
         if reason == .hover || reason == .click { mouseHasEntered = true }
         updateHotKeys()
     }
@@ -680,6 +783,7 @@ final class IslandModel: ObservableObject {
         collapseWork?.cancel()
         expansion = nil
         composing = false
+        switching = false
         highlightedSession = nil
         peekSessions = false
         mouseHasEntered = false
@@ -693,7 +797,7 @@ final class IslandModel: ObservableObject {
     func mouseExited() {
         hovering = false
         guard let reason = expansion else { return }
-        if reason == .attention && !mouseHasEntered || reason == .compose { return }
+        if reason == .attention && !mouseHasEntered || reason == .compose || reason == .switcher { return }
         scheduleCollapse(after: 0.35)
     }
 
@@ -804,10 +908,40 @@ final class IslandModel: ObservableObject {
         }
     }
 
+    /// ⌃⌥J, from any app: answer in the notch when the request can be answered there, else go to
+    /// the terminal of the session waiting longest (or the latest unread finished one).
+    private func updateJumpHotKey() {
+        let hk = HotKeyCenter.shared
+        guard Prefs.bool(PrefKey.jumpShortcut), !PreviewRenderer.active else { return hk.unregister(id: HotKeyID.jump) }
+        hk.register(id: HotKeyID.jump, keyCode: KeyCodes.j, modifiers: KeyCodes.control | KeyCodes.option) { [weak self] in
+            self?.jumpToNeediest()
+        }
+    }
+
+    /// ⌃⌥S, from any app: open the session switcher, or close it again.
+    private func updateSwitcherHotKey() {
+        let hk = HotKeyCenter.shared
+        guard Prefs.bool(PrefKey.switcherShortcut), !PreviewRenderer.active else { return hk.unregister(id: HotKeyID.switcher) }
+        hk.register(id: HotKeyID.switcher, keyCode: KeyCodes.s, modifiers: KeyCodes.control | KeyCodes.option) { [weak self] in
+            guard let self else { return }
+            if self.switching && self.isExpanded { self.closeSwitcher() } else { self.openSwitcher() }
+        }
+    }
+
+    func jumpToNeediest() {
+        guard let target = SessionEngine.jumpTarget(sessions) else { return toggle() }
+        // Menu bar only has no notch to answer in: go to the terminal instead.
+        if Prefs.display != .menuBarOnly, let i = pending.firstIndex(where: { $0.sessionKey == target.id && $0.kind != .external }) {
+            selectedRequestIndex = i
+            return expand(.click)
+        }
+        jump(to: target)
+    }
+
     private func updateHotKeys() {
         let hk = HotKeyCenter.shared
         // Behind the launcher a request isn't on screen, and ⌘N must not deny it while you type.
-        let isExpanded = isExpanded && !composing
+        let isExpanded = isExpanded && !composing && !switching
         if isExpanded, currentRequest?.kind == .permission {
             hk.register(id: HotKeyID.allow, keyCode: KeyCodes.y, modifiers: KeyCodes.command) { [weak self] in self?.allowCurrent() }
             hk.register(id: HotKeyID.deny, keyCode: KeyCodes.n, modifiers: KeyCodes.command) { [weak self] in self?.denyCurrent() }
@@ -870,6 +1004,8 @@ final class IslandModel: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + remaining + 0.05, execute: work)
         }
     }
+
+    private func updateKeepAwake() { keepAwake.update(mode: Prefs.keepAwake, anyWorking: workingCount > 0) }
 
     var attentionCount: Int { sessions.filter { $0.phase.needsUser }.count }
     var workingCount: Int { sessions.filter { $0.phase.group == .working }.count }

@@ -45,6 +45,9 @@ public enum ToolDescriber {
             let title = PlainText.title(input["plan"]?.string ?? "", max: 80)
             return Activity(title.isEmpty ? "Plan ready for review" : "Plan ready: \(title)")
         case "apply_patch": return patchActivity(input)
+        case "LS":
+            let dir = path("path") ?? path("directory_path")
+            return Activity(dir.map { "Listing \(($0 as NSString).lastPathComponent)" } ?? "Listing files", detail: dir.map(abbreviate))
         // Antigravity
         case "run_command": return shell(input["CommandLine"]?.string ?? "")
         case "view_file", "view_file_outline": return Activity("Reading \(file("AbsolutePath"))", detail: path("AbsolutePath").map(abbreviate))
@@ -56,6 +59,16 @@ public enum ToolDescriber {
         case "list_dir": return Activity("Listing \(file("DirectoryPath"))", detail: path("DirectoryPath").map(abbreviate))
         case "read_url_content": return fetch("Url")
         case "search_web": return Activity("Searching the web for \(quoted("query"))")
+        // Gemini CLI
+        case "list_directory": return Activity("Listing \(file("dir_path"))", detail: path("dir_path").map(abbreviate))
+        case "read_many_files": return Activity("Reading several files")
+        case "write_todos": return Activity("Updating the to-do list")
+        case "save_memory": return Activity("Saving a memory")
+        // Copilot CLI
+        case "report_intent":
+            let intent = input["intent"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return Activity(intent.isEmpty ? "Planning the next step" : PlainText.truncate(intent, max: 90))
+        case "store_memory": return Activity("Saving a memory")
         default:
             if tool.hasPrefix("mcp__") { return mcpActivity(tool) }
             return Activity("Using \(words(tool))")

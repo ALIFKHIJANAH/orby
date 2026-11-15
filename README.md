@@ -1,14 +1,15 @@
 # Orby
 
 A Dynamic Island for your AI coding agents. Orby lives in the MacBook notch (or a
-floating bar on Macs without one) and shows what Claude Code, Codex, OpenCode, Qwen Code, Command Code,
-Pi, Antigravity and Cursor are doing. You can
+floating bar on Macs without one) and shows what Claude Code (CLI and Desktop), Codex (CLI and app), OpenCode, Qwen Code, Command Code,
+Pi, Antigravity, Cursor, Gemini CLI, GitHub Copilot CLI, Factory Droid and Kimi Code are doing. You can
 approve tool calls, answer questions, review plans and jump back to the right terminal tab
 without leaving what you're doing.
 
 Native Swift (AppKit + SwiftUI), ~2 MB, no accounts, nothing leaves your Mac except the
 optional Claude plan-limit request (and, if you turn it on, the quota check agy itself makes for
-`agy /usage`).
+`agy /usage`). Orby also asks GitHub once a day for its latest release version; it sends nothing
+about you or your agents, and you can turn it off in Settings → About.
 
 ![sessions](docs/screenshots/expanded-sessions.png)
 

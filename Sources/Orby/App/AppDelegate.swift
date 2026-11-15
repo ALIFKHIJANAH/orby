@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for target in HookTarget.allCases where HookInstaller.status(target) == .notInstalled {
                 _ = try? HookInstaller.apply(target, install: true)
             }
+            for dir in Prefs.claudeConfigDirs where HookInstaller.status(claudeConfigDir: dir) == .notInstalled {
+                _ = try? HookInstaller.apply(claudeConfigDir: dir, install: true)
+            }
             // Only ever put back after the user turned it on in Settings.
             if Prefs.bool(PrefKey.antigravityStatusLine), StatusLineInstaller.status() == .notInstalled {
                 _ = try? StatusLineInstaller.apply(install: true)
@@ -41,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsWindowController.shared.sound = model.sound
         SettingsWindowController.shared.usage = model.usage
         model.start()
+        UpdateService.shared.start()
         // Antigravity reports permission prompts only in its CLI log.
         let watcher = AntigravityLogWatcher { event, logID in model.antigravityLog(event, logID: logID) }
         watcher.start()
@@ -67,12 +71,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
+        model.keepAwake.stop()
     }
 
     // MARK: Menu bar
 
     private func setupStatusItem() {
-        let wanted = Prefs.bool(PrefKey.showMenuBarIcon)
+        // Menu bar only: the icon is the whole UI, so it stays whatever the icon toggle says.
+        let wanted = Prefs.bool(PrefKey.showMenuBarIcon) || Prefs.display == .menuBarOnly
         if !wanted, let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
@@ -102,7 +108,15 @@ extension AppDelegate: NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Show Island", action: #selector(toggleIsland), keyEquivalent: "").target = self
+        if let release = UpdateService.shared.available {
+            let item = NSMenuItem(title: "Download Orby \(release.version)…", action: #selector(openUpdate), keyEquivalent: "")
+            item.target = self
+            item.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+        if Prefs.display != .menuBarOnly {
+            menu.addItem(withTitle: "Show Island", action: #selector(toggleIsland), keyEquivalent: "").target = self
+        }
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Orby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -114,5 +128,8 @@ extension AppDelegate: NSMenuDelegate {
     }
 
     @objc private func toggleIsland() { model.toggle() }
+    @objc private func openUpdate() {
+        if let page = UpdateService.shared.available?.page { NSWorkspace.shared.open(page) }
+    }
     @objc private func openSettings() { SettingsWindowController.shared.show() }
 }

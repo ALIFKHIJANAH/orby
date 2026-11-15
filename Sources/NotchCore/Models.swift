@@ -2,7 +2,7 @@ import Foundation
 import NotchShared
 
 public enum AgentKind: String, Codable, CaseIterable, Sendable {
-    case claude, codex, antigravity, opencode, pi, commandcode, qwen, cursor, unknown
+    case claude, codex, antigravity, opencode, pi, commandcode, qwen, cursor, droid, kimi, gemini, copilot, unknown
 
     public init(source: String) { self = AgentKind(rawValue: source) ?? .unknown }
 
@@ -21,7 +21,11 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         case .commandcode: "Command Code"
         case .qwen: "Qwen Code"
         case .cursor: "Cursor"
+        case .droid: "Factory Droid"
+        case .kimi: "Kimi Code"
         case .unknown: "Agent"
+        case .gemini: "Gemini CLI"
+        case .copilot: "Copilot CLI"
         }
     }
 }
@@ -84,6 +88,15 @@ public struct TerminalContext: Codable, Hashable, Sendable {
     /// The `term_…` handle Orca's orchestration uses for this terminal.
     public var orcaTerminal: String?
     public var agentPID: Int32?
+    /// Set when the agent runs inside Claude Desktop or the Codex app rather than a terminal.
+    public var desktop: DesktopHost?
+    /// Zellij session name and pane number (ZELLIJ_PANE_ID), for `zellij action focus-pane-id`.
+    public var zellijSession: String?
+    public var zellijPane: String?
+    /// cmux workspace/surface ids and its socket, for `workspace.select` + `surface.focus`.
+    public var cmuxWorkspace: String?
+    public var cmuxSurface: String?
+    public var cmuxSocket: String?
 
     public init() {}
 
@@ -101,11 +114,21 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         orcaTabID = env["ORCA_TAB_ID"]
         orcaPane = env["ORCA_AGENT_PANE"]
         orcaTerminal = env["ORCA_TERMINAL_HANDLE"]
+        zellijSession = env["ZELLIJ_SESSION_NAME"]
+        zellijPane = env["ZELLIJ_PANE_ID"]
+        cmuxWorkspace = env["CMUX_WORKSPACE_ID"]
+        cmuxSurface = env["CMUX_SURFACE_ID"]
+        cmuxSocket = env["CMUX_SOCKET_PATH"]
         tty = envelope.tty
         agentPID = envelope.agentPID
         appBundlePath = envelope.processChain.lazy.compactMap { $0.path.flatMap(ProcessTree.outermostAppBundle) }.first
         bundleID = env["__CFBundleIdentifier"]
         if let path = appBundlePath, let id = Bundle(path: path)?.bundleIdentifier { bundleID = id }
+        if let host = DesktopApp.detect(env: env, chain: envelope.processChain) {
+            desktop = host
+            appBundlePath = host.bundlePath
+            bundleID = host.app.bundleID
+        }
     }
 
     /// Keep previously learned identifiers when a later event lacks them.
@@ -126,6 +149,12 @@ public struct TerminalContext: Codable, Hashable, Sendable {
         m.orcaPane = orcaPane ?? old.orcaPane
         m.orcaTerminal = orcaTerminal ?? old.orcaTerminal
         m.agentPID = agentPID ?? old.agentPID
+        m.desktop = desktop ?? old.desktop
+        m.zellijSession = zellijSession ?? old.zellijSession
+        m.zellijPane = zellijPane ?? old.zellijPane
+        m.cmuxWorkspace = cmuxWorkspace ?? old.cmuxWorkspace
+        m.cmuxSurface = cmuxSurface ?? old.cmuxSurface
+        m.cmuxSocket = cmuxSocket ?? old.cmuxSocket
         return m
     }
 }
@@ -165,6 +194,8 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
     public var lastToolInput: JSONValue?
     /// The agent's to-do list, from its last TodoWrite / update_plan call.
     public var tasks: TaskList?
+    /// The session's first prompt in full; `title` is only its first line.
+    public var firstPrompt: String?
 
     public init(agent: AgentKind, sessionID: String, cwd: String, now: Date) {
         self.id = "\(agent.rawValue):\(sessionID)"

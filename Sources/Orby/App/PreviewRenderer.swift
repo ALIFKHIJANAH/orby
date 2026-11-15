@@ -45,6 +45,8 @@ enum PreviewRenderer {
             ("expanded-plan", 700, { m in working(m, repo); plan(m, repo); m.expand(.attention) }),
             ("expanded-usage", 680, { m in working(m, repo); sampleUsage(m); m.expand(.click); m.tab = .usage }),
             ("expanded-empty", 260, { m in m.expand(.click) }),
+            ("expanded-switcher", 360, { m in working(m, repo); taskList(m, repo); m.previewSwitcher(query: "", selection: 1) }),
+            ("expanded-switcher-filtered", 260, { m in working(m, repo); taskList(m, repo); m.previewSwitcher(query: "acme", selection: 0) }),
             ("expanded-new-agent", 360, { m in
                 working(m, repo)
                 // A tidy path for screenshots; the fake repo lives in a temp folder.
@@ -60,6 +62,7 @@ enum PreviewRenderer {
             setup(model)
             let view = NotchRootView()
                 .environmentObject(model)
+                .environmentObject(IslandScreen(metrics: model.metrics))
                 .frame(width: NotchPanelController.canvas.width, height: height, alignment: .top)
                 .clipped()
                 .background(LinearGradient(colors: [Color(white: 0.78), Color(white: 0.62)], startPoint: .top, endPoint: .bottom))

@@ -44,8 +44,12 @@ private func hook(
         #expect(engine.sessions[key]?.subagents.first?.task == "Find the auth code")
         #expect(engine.sessions[key]?.subagents.first?.type == "Explore")
 
-        _ = engine.handle(hook("SubagentStop", extra: ["agent_id": "a1"]))
+        // A subagent finishing is not the turn finishing: no sound, no pop-open.
+        let stop = engine.handle(hook("SubagentStop", extra: ["agent_id": "a1"]))
+        #expect(stop.cue == nil)
+        #expect(stop.reveal == nil)
         #expect(engine.sessions[key]?.subagents.isEmpty == true)
+        #expect(engine.sessions[key]?.phase == .working)
     }
 
     @Test func subagentToDoListDoesNotReplaceTheMainOne() throws {

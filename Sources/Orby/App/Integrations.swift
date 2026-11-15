@@ -10,6 +10,11 @@ struct IntegrationStatus {
     }
 
     var anyInstalled: Bool { statuses.values.contains(.installed) }
+
+    /// Extra Claude config folders from Settings, in the order the user added them.
+    static func claudeDirs() -> [(dir: URL, status: HookInstaller.Status)] {
+        Prefs.claudeConfigDirs.map { ($0, HookInstaller.status(claudeConfigDir: $0)) }
+    }
 }
 
 extension HookTarget {
@@ -22,8 +27,16 @@ extension HookTarget {
             "Pi doesn't ask before running tools, so Orby shows its status only. Run /reload in Pi or restart it to load the extension."
         case .commandcode:
             "Status comes from hooks, approvals from an Orby mod. Mods are experimental in Command Code; while the notch shows a request, Command Code's own prompt waits for it."
+        case .droid:
+            "Droid has no approval hook, so Orby shows its status and alerts you when it asks for permission; answer in its terminal. Restart Droid to load the hooks."
+        case .kimi:
+            "Kimi Code only lets hooks watch its permission prompts, so the notch alerts you and takes you to its terminal to answer. New sessions pick up the hooks."
         case .claude, .codex, .antigravity, .qwen:
             nil
+        case .gemini:
+            "Gemini CLI can't be answered from outside, so the notch alerts you when it asks and jumps to its terminal. Gemini skips all hooks in folders you haven't trusted, so those sessions don't show up."
+        case .copilot:
+            "Orby shows Copilot's status and alerts you when it asks. To approve from the notch, turn on “Answer Copilot CLI prompts from the notch” below."
         }
     }
 }
@@ -67,6 +80,9 @@ enum BridgeSetup {
         var results: [HookTarget: Result<URL?, Error>] = [:]
         for target in HookTarget.allCases where HookInstaller.status(target) != .agentMissing {
             results[target] = Result { try HookInstaller.apply(target, install: true) }
+        }
+        for dir in Prefs.claudeConfigDirs where HookInstaller.status(claudeConfigDir: dir) != .agentMissing {
+            _ = try? HookInstaller.apply(claudeConfigDir: dir, install: true)
         }
         // The status line relay is opt-in: only reinstalled when its Settings toggle is on.
         if Prefs.bool(PrefKey.antigravityStatusLine), StatusLineInstaller.status() == .notInstalled {
