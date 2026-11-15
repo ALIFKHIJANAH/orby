@@ -47,9 +47,11 @@ enum PreviewRenderer {
             ("expanded-empty", 260, { m in m.expand(.click) }),
             ("expanded-new-agent", 360, { m in
                 working(m, repo)
+                // A tidy path for screenshots; the fake repo lives in a temp folder.
+                let folder = "/Users/me/acme-web"
                 m.previewCompose(
-                    LaunchDraft(agent: .claude, folder: repo, terminal: .orca, prompt: "Add a dark mode toggle to the settings page"),
-                    worktrees: [OrcaWorktree(path: repo, branch: "feat/login")])
+                    LaunchDraft(agent: .claude, folder: folder, terminal: .orca, prompt: "Add a dark mode toggle to the settings page"),
+                    worktrees: [OrcaWorktree(path: folder, branch: "feat/login")])
             }),
         ]
         for (name, height, setup) in scenarios {

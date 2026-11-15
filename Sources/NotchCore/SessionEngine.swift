@@ -215,7 +215,8 @@ public struct SessionEngine: Sendable {
         case "PreCompact":
             s.phase = .compacting
         case "PostCompact":
-            s.phase = .thinking
+            // A manual /compact runs between turns; an automatic one carries on with the turn.
+            s.phase = p["trigger"]?.string == "manual" ? .ready : .thinking
             out.refreshTranscript = true
 
         default:
@@ -400,6 +401,15 @@ public struct SessionEngine: Sendable {
             if !summary.isEmpty { s.lastMessage = summary }
         }
         if let b = info.gitBranch, s.git != nil, s.git?.branch == nil { s.git?.branch = b }
+        // Esc in the terminal ends the turn without a Stop hook. Only an interrupt written after
+        // the last hook counts: an older one belongs to a turn that has already been replaced.
+        if let at = info.interruptedAt, at > s.updatedAt, s.phase.group == .working {
+            s.phase = .waitingInput
+            s.activity = nil
+            s.attention = nil
+            s.subagents = []
+            s.updatedAt = at
+        }
         s.thinking = s.phase == .thinking
             ? info.latestThinking.map { PlainText.latest($0, max: 140) }.flatMap { $0.isEmpty ? nil : $0 }
             : nil
