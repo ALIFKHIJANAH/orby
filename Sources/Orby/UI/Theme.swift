@@ -38,6 +38,8 @@ enum Theme {
         case .commandcode: Color(red: 0.64, green: 0.86, blue: 0.30)
         case .qwen: Color(red: 0.48, green: 0.40, blue: 0.96)
         case .cursor: Color(red: 0.62, green: 0.66, blue: 0.74)
+        case .droid: Color(red: 0.95, green: 0.55, blue: 0.22)
+        case .kimi: Color(red: 0.40, green: 0.76, blue: 0.98)
         case .unknown: Color.gray
         }
     }
@@ -55,6 +57,8 @@ enum Theme {
         case .commandcode: "command"
         case .qwen: "sparkle"
         case .cursor: "cursorarrow"
+        case .droid: "gearshape.2"
+        case .kimi: "moon.stars"
         case .unknown: "cpu"
         }
     }

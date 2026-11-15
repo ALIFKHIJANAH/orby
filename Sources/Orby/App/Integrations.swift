@@ -27,6 +27,10 @@ extension HookTarget {
             "Pi doesn't ask before running tools, so Orby shows its status only. Run /reload in Pi or restart it to load the extension."
         case .commandcode:
             "Status comes from hooks, approvals from an Orby mod. Mods are experimental in Command Code; while the notch shows a request, Command Code's own prompt waits for it."
+        case .droid:
+            "Droid has no approval hook, so Orby shows its status and alerts you when it asks for permission; answer in its terminal. Restart Droid to load the hooks."
+        case .kimi:
+            "Kimi Code only lets hooks watch its permission prompts, so the notch alerts you and takes you to its terminal to answer. New sessions pick up the hooks."
         case .claude, .codex, .antigravity, .qwen:
             nil
         }

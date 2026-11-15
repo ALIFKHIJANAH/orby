@@ -40,7 +40,8 @@ public enum TaskProgress {
             return nil
         }
         let items = entries.compactMap { e -> TaskList.Item? in
-            guard let title = e[titleKey]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return nil }
+            // Kimi's TodoList names the text "title".
+            guard let title = (e[titleKey] ?? e["title"])?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return nil }
             let active = e["activeForm"]?.string.flatMap { $0.isEmpty ? nil : $0 }
             return TaskList.Item(title: title, status: status(e["status"]?.string), activeTitle: active)
         }

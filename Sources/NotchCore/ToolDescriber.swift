@@ -45,6 +45,9 @@ public enum ToolDescriber {
             let title = PlainText.title(input["plan"]?.string ?? "", max: 80)
             return Activity(title.isEmpty ? "Plan ready for review" : "Plan ready: \(title)")
         case "apply_patch": return patchActivity(input)
+        case "LS":
+            let dir = path("path") ?? path("directory_path")
+            return Activity(dir.map { "Listing \(($0 as NSString).lastPathComponent)" } ?? "Listing files", detail: dir.map(abbreviate))
         // Antigravity
         case "run_command": return shell(input["CommandLine"]?.string ?? "")
         case "view_file", "view_file_outline": return Activity("Reading \(file("AbsolutePath"))", detail: path("AbsolutePath").map(abbreviate))

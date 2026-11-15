@@ -77,7 +77,7 @@ if CommandLine.arguments.contains("--statusline") { runStatusLine() }
 // Run by hand in a terminal: don't hang waiting for stdin.
 if isatty(STDIN_FILENO) != 0 {
     FileHandle.standardError.write(
-        Data("orby-bridge: expects hook JSON on stdin (--source claude|codex|antigravity|opencode|pi|commandcode|qwen [--event name], or --statusline --source antigravity [--wrap command])\n".utf8))
+        Data("orby-bridge: expects hook JSON on stdin (--source claude|codex|antigravity|opencode|pi|commandcode|qwen|droid|kimi [--event name], or --statusline --source antigravity [--wrap command])\n".utf8))
     exit(0)
 }
 
@@ -96,7 +96,7 @@ if let pwd = env["PWD"] { terminalEnv["PWD"] = pwd }
 let chain = ProcessTree.chain(from: getppid())
 let agent = ProcessTree.agentProcess(in: chain)
 let eventName = payload["hook_event_name"]?.string ?? ""
-let expectsReply = blockingEvents.contains(eventName)
+let expectsReply = NotchShared.expectsReply(source: source, event: eventName)
 
 let envelope = BridgeEnvelope(
     source: source,
