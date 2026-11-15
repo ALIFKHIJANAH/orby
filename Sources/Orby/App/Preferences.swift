@@ -59,6 +59,12 @@ enum PrefKey {
     static let newAgentShortcut = "newAgentShortcut"
     /// ⌃⌥J jumps to the session that needs you from any app. Off by default: it's a global key.
     static let jumpShortcut = "jumpShortcut"
+    /// Sessions kept out of the list: folders (one per line, the folder and everything under it)
+    /// and text in the first prompt (one per line).
+    static let hiddenFolders = "hiddenFolders"
+    static let hiddenPrompts = "hiddenPrompts"
+    /// ⌃⌥S opens the session switcher from any app. Off by default: it's a global key.
+    static let switcherShortcut = "switcherShortcut"
     static func soundEnabled(_ cue: SoundCue) -> String { "sound.\(cue.rawValue)" }
 }
 
@@ -125,6 +131,9 @@ enum Prefs {
             PrefKey.recentFolders: "",
             PrefKey.newAgentShortcut: true,
             PrefKey.jumpShortcut: false,
+            PrefKey.hiddenFolders: "",
+            PrefKey.hiddenPrompts: "",
+            PrefKey.switcherShortcut: false,
         ]
         for cue in SoundCue.allCases { values[PrefKey.soundEnabled(cue)] = cue != .start }
         defaults.register(defaults: values)
@@ -134,5 +143,10 @@ enum Prefs {
     static func lines(_ stored: String) -> [String] { stored.split(separator: "\n").map(String.init) }
     static func double(_ key: String) -> Double { defaults.double(forKey: key) }
     static var soundTheme: SoundTheme { SoundTheme(rawValue: defaults.string(forKey: PrefKey.soundTheme) ?? "") ?? .chiptune }
+    static var sessionFilter: SessionFilter {
+        SessionFilter(
+            folderLines: defaults.string(forKey: PrefKey.hiddenFolders) ?? "",
+            promptLines: defaults.string(forKey: PrefKey.hiddenPrompts) ?? "")
+    }
     static var display: DisplayChoice { DisplayChoice(rawValue: defaults.string(forKey: PrefKey.display) ?? "") ?? .auto }
 }

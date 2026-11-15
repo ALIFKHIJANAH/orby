@@ -165,6 +165,8 @@ public struct AgentSession: Identifiable, Hashable, Sendable {
     public var lastToolInput: JSONValue?
     /// The agent's to-do list, from its last TodoWrite / update_plan call.
     public var tasks: TaskList?
+    /// The session's first prompt in full; `title` is only its first line.
+    public var firstPrompt: String?
 
     public init(agent: AgentKind, sessionID: String, cwd: String, now: Date) {
         self.id = "\(agent.rawValue):\(sessionID)"

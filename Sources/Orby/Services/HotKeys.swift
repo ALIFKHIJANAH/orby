@@ -3,7 +3,7 @@ import Foundation
 
 /// System-wide shortcuts via Carbon hot keys (no Accessibility permission needed).
 /// The request keys are registered only while a request is on screen so ⌘Y/⌘N aren't stolen
-/// otherwise; ⌥⌘N (new agent) and ⌃⌥J (jump) stay registered while their settings are on.
+/// otherwise; ⌥⌘N (new agent), ⌃⌥J (jump) and ⌃⌥S (switcher) stay registered while their settings are on.
 @MainActor
 final class HotKeyCenter {
     static let shared = HotKeyCenter()
@@ -56,6 +56,7 @@ enum HotKeyID {
     static let deny: UInt32 = 2
     static let newAgent: UInt32 = 3
     static let jump: UInt32 = 4
+    static let switcher: UInt32 = 5
     /// ⌘1…⌘9 pick question options; ids 11…19.
     static func option(_ index: Int) -> UInt32 { UInt32(11 + index) }
 }
@@ -64,6 +65,7 @@ enum KeyCodes {
     static let y = kVK_ANSI_Y
     static let n = kVK_ANSI_N
     static let j = kVK_ANSI_J
+    static let s = kVK_ANSI_S
     static let command = cmdKey
     static let option = optionKey
     static let control = controlKey

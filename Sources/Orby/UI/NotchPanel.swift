@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import SwiftUI
 
@@ -75,6 +76,27 @@ final class NotchPanelController {
         model.$composing.filter { $0 }
             .sink { [weak self] _ in DispatchQueue.main.async { self?.panel.makeKey() } }
             .store(in: &cancellables)
+        // Same for the switcher; once it closes, keys go back to the app in front.
+        model.$switching.removeDuplicates()
+            .sink { [weak self] on in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if on { self.panel.makeKey() } else if self.panel.isKeyWindow, !self.model.composing { self.panel.resignKey() }
+                }
+            }
+            .store(in: &cancellables)
+        // Arrows, Return and Esc drive the switcher wherever focus sits; other keys reach its field.
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self, self.model.switching, e.window === self.panel else { return e }
+            switch Int(e.keyCode) {
+            case kVK_DownArrow: self.model.moveSwitcherSelection(by: 1)
+            case kVK_UpArrow: self.model.moveSwitcherSelection(by: -1)
+            case kVK_Return, kVK_ANSI_KeypadEnter: self.model.switchToSelected()
+            case kVK_Escape: self.model.closeSwitcher()
+            default: return e
+            }
+            return nil
+        } as Any)
 
         let moved: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         monitors.append(NSEvent.addGlobalMonitorForEvents(matching: moved) { [weak self] _ in
@@ -148,7 +170,7 @@ final class NotchPanelController {
         } else {
             hoverWork?.cancel()
             model.mouseExited()
-            if panel.isKeyWindow, !model.composing { panel.resignKey() }
+            if panel.isKeyWindow, !model.composing, !model.switching { panel.resignKey() }
         }
     }
 }
