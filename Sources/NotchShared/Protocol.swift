@@ -81,6 +81,8 @@ public let terminalEnvKeys: [String] = [
     "__CFBundleIdentifier", "VSCODE_PID", "CURSOR_TRACE_ID",
     // Orca: which tab/pane hosts the agent, for `orca terminal switch`; the handle links orchestration workers.
     "ORCA_TAB_ID", "ORCA_AGENT_PANE", "ORCA_TERMINAL_HANDLE",
+    // Zellij pane and cmux workspace/surface/socket, for precise jumps.
+    "ZELLIJ_PANE_ID", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_SOCKET_PATH",
 ]
 
 public let wireJSONEncoder: JSONEncoder = {
