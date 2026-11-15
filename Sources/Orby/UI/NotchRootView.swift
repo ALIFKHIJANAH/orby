@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NotchRootView: View {
     @EnvironmentObject var model: IslandModel
+    @EnvironmentObject var screen: IslandScreen
     @AppStorage(PrefKey.panelWidth) private var panelWidth = 560.0
     @AppStorage(PrefKey.hideWhenIdle) private var hideWhenIdle = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -12,14 +13,20 @@ struct NotchRootView: View {
 
     private let wing: CGFloat = 40
 
+    /// With an island on every display, only the active one opens; the rest stay tabs.
+    private var expanded: Bool { model.isExpanded && screen.isActive }
+
     var body: some View {
         VStack(spacing: 0) {
             island
-                .onGeometryChange(for: CGSize.self, of: { $0.size }) { model.shapeSize = $0 }
+                .onGeometryChange(for: CGSize.self, of: { $0.size }) {
+                    screen.shapeSize = $0
+                    if screen.isActive { model.shapeSize = $0 }
+                }
             Spacer(minLength: 0)
         }
         .frame(width: NotchPanelController.canvas.width, height: NotchPanelController.canvas.height, alignment: .top)
-        .animation(morph, value: model.isExpanded)
+        .animation(morph, value: expanded)
         .animation(.spring(response: 0.32, dampingFraction: 0.9), value: collapsedWidth)
         .animation(.spring(response: 0.36, dampingFraction: 0.9), value: expandedHeight)
         .animation(.spring(response: 0.28, dampingFraction: 0.78), value: peek)
@@ -27,24 +34,24 @@ struct NotchRootView: View {
         .environment(\.colorScheme, .dark)
     }
 
-    private var flare: CGFloat { model.metrics.hasNotch ? (model.isExpanded ? 14 : 6) : 0 }
+    private var flare: CGFloat { screen.metrics.hasNotch ? (expanded ? 14 : 6) : 0 }
 
     @ViewBuilder private var island: some View {
-        let shape = NotchShape(topRadius: flare, bottomRadius: model.isExpanded ? 22 : (showsBanner ? 14 : (model.metrics.hasNotch ? 10 : 13)))
+        let shape = NotchShape(topRadius: flare, bottomRadius: expanded ? 22 : (showsBanner ? 14 : (screen.metrics.hasNotch ? 10 : 13)))
         // A ZStack so the outgoing and incoming content overlap instead of stacking, and an
         // explicit frame so the shape's size is animated on its own: it never waits for the
         // outgoing view to leave, and the open panel is laid out once at full size and revealed
         // by the growing clip rather than re-flowed on every frame.
         ZStack(alignment: .top) {
-            if model.isExpanded {
+            if expanded {
                 ExpandedView()
-                    .padding(.top, model.metrics.notchHeight)
+                    .padding(.top, screen.metrics.notchHeight)
                     .frame(width: panelWidth)
                     .fixedSize(horizontal: false, vertical: true)
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { expandedHeight = $0 }
                     .transition(expandedTransition)
             } else if let banner = model.headphoneBanner {
-                HeadphonePill(banner: banner, scale: BannerScale(height: collapsedHeight), hasNotch: model.metrics.hasNotch)
+                HeadphonePill(banner: banner, scale: BannerScale(height: collapsedHeight), hasNotch: screen.metrics.hasNotch)
                     .frame(width: max(0, collapsedWidth - 2 * flare), height: tabHeight)
                     .transition(collapsedTransition)
             } else {
@@ -58,7 +65,7 @@ struct NotchRootView: View {
         .clipShape(shape)
         // Shadow on the static backdrop only: on the whole island it re-rendered and blurred
         // everything offscreen on every orb frame, even while collapsed with the shadow invisible.
-        .background(shape.fill(Theme.surface).shadow(color: .black.opacity(model.isExpanded ? 0.45 : 0), radius: 18, y: 8))
+        .background(shape.fill(Theme.surface).shadow(color: .black.opacity(expanded ? 0.45 : 0), radius: 18, y: 8))
         .contentShape(shape)
         .onTapGesture { if !model.isExpanded { model.expand(.click) } }
     }
@@ -72,9 +79,9 @@ struct NotchRootView: View {
         return !(hideWhenIdle && model.idleTab)
     }
 
-    private var collapsedHeight: CGFloat { model.metrics.notchHeight }
+    private var collapsedHeight: CGFloat { screen.metrics.notchHeight }
 
-    private var showsBanner: Bool { model.headphoneBanner != nil && !model.isExpanded }
+    private var showsBanner: Bool { model.headphoneBanner != nil && !expanded }
 
     /// The headphone banner hangs a little below the notch so its icon and ring get the same
     /// margin at the bottom as at the screen edge, instead of sitting on the island's lower rim.
@@ -83,22 +90,22 @@ struct NotchRootView: View {
     }
 
     /// Collapsed and hovered: the tab leans out a few points before it opens.
-    private var peek: Bool { model.hovering && !model.isExpanded && !reduceMotion && collapsedWidth > 0 }
+    private var peek: Bool { model.hovering && screen.isActive && !expanded && !reduceMotion && collapsedWidth > 0 }
 
     private var innerWidth: CGFloat {
-        if model.isExpanded { return panelWidth }
+        if expanded { return panelWidth }
         return max(0, collapsedWidth - 2 * flare + (peek ? 10 : 0))
     }
 
     private var islandHeight: CGFloat {
-        model.isExpanded ? expandedHeight : tabHeight + (peek ? 3 : 0)
+        expanded ? expandedHeight : tabHeight + (peek ? 3 : 0)
     }
 
     /// Opening glides out with just a hint of overshoot, as if the island grows out of the notch;
     /// closing is critically damped so it tucks back in without a bounce.
     private var morph: Animation {
         if reduceMotion { return .easeInOut(duration: 0.2) }
-        return model.isExpanded ? .spring(response: 0.44, dampingFraction: 0.86) : .spring(response: 0.34, dampingFraction: 1)
+        return expanded ? .spring(response: 0.44, dampingFraction: 0.86) : .spring(response: 0.34, dampingFraction: 1)
     }
 
     /// The panel's content fades in once the shape has started making room and leaves before it
@@ -119,7 +126,7 @@ struct NotchRootView: View {
     }
 
     private var collapsedWidth: CGFloat {
-        let m = model.metrics
+        let m = screen.metrics
         let w = model.headphoneBanner == nil ? wing : BannerScale(height: collapsedHeight).wing
         if m.hasNotch { return m.notchWidth + (hasActivity ? 2 * w : 0) + 2 * flare }
         return hasActivity ? 2 * w + (model.headphoneBanner == nil ? 96 : 130) : 0
@@ -128,6 +135,7 @@ struct NotchRootView: View {
 
 struct CollapsedView: View {
     @EnvironmentObject var model: IslandModel
+    @EnvironmentObject var screen: IslandScreen
     let wing: CGFloat
     /// False while the tab has shrunk back to the plain notch: the orb would still animate,
     /// unseen, under the hardware notch.
@@ -137,7 +145,7 @@ struct CollapsedView: View {
         HStack(spacing: 0) {
             Group { if showsContent { leading } }.frame(width: wing)
             Spacer(minLength: 0)
-            if !model.metrics.hasNotch {
+            if !screen.metrics.hasNotch {
                 Text(summary)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.secondaryText)

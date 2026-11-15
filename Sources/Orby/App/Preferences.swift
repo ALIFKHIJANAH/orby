@@ -76,9 +76,24 @@ enum SoundTheme: String, CaseIterable, Identifiable {
 }
 
 enum DisplayChoice: String, CaseIterable, Identifiable {
-    case auto, main
+    case auto, main, every, menuBarOnly
     var id: String { rawValue }
-    var label: String { self == .auto ? "Built-in display (notch) if available" : "Display with the menu bar" }
+    var label: String {
+        switch self {
+        case .auto: "Built-in display (notch) if available"
+        case .main: "Display with the menu bar"
+        case .every: "Every display"
+        case .menuBarOnly: "Menu bar only (no island)"
+        }
+    }
+    var placement: DisplayLayout.Placement {
+        switch self {
+        case .auto: .notchOrMain
+        case .main: .menuBar
+        case .every: .every
+        case .menuBarOnly: .none
+        }
+    }
 }
 
 enum Prefs {

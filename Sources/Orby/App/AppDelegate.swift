@@ -73,7 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Menu bar
 
     private func setupStatusItem() {
-        let wanted = Prefs.bool(PrefKey.showMenuBarIcon)
+        // Menu bar only: the icon is the whole UI, so it stays whatever the icon toggle says.
+        let wanted = Prefs.bool(PrefKey.showMenuBarIcon) || Prefs.display == .menuBarOnly
         if !wanted, let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
@@ -109,7 +110,9 @@ extension AppDelegate: NSMenuDelegate {
             item.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
             menu.addItem(item)
         }
-        menu.addItem(withTitle: "Show Island", action: #selector(toggleIsland), keyEquivalent: "").target = self
+        if Prefs.display != .menuBarOnly {
+            menu.addItem(withTitle: "Show Island", action: #selector(toggleIsland), keyEquivalent: "").target = self
+        }
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Orby", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

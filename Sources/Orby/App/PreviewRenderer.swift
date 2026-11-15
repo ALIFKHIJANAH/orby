@@ -60,6 +60,7 @@ enum PreviewRenderer {
             setup(model)
             let view = NotchRootView()
                 .environmentObject(model)
+                .environmentObject(IslandScreen(metrics: model.metrics))
                 .frame(width: NotchPanelController.canvas.width, height: height, alignment: .top)
                 .clipped()
                 .background(LinearGradient(colors: [Color(white: 0.78), Color(white: 0.62)], startPoint: .top, endPoint: .bottom))

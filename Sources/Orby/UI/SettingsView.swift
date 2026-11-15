@@ -193,6 +193,13 @@ private struct GeneralSettings: View {
             Picker("Show on", selection: $display) {
                 ForEach(DisplayChoice.allCases) { Text($0.label).tag($0.rawValue) }
             }
+            if display == DisplayChoice.every.rawValue {
+                Text("Each display gets its own island. A request opens only one: on the display with the pointer, else the main one.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if display == DisplayChoice.menuBarOnly.rawValue {
+                Text("No island. The menu bar icon lists your agents and stays on even with “Show menu bar icon” off, and requests still play their sounds.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Slider(value: $panelWidth, in: 440...720, step: 10) { Text("Panel width \(Int(panelWidth))") }
             Stepper("Notch width: \(notchWidth == 0 ? "auto" : "\(Int(notchWidth))")", value: $notchWidth, in: 0...400, step: 2)
             Stepper("Notch height: \(notchHeight == 0 ? "auto" : "\(Int(notchHeight))")", value: $notchHeight, in: 0...60, step: 1)

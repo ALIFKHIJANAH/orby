@@ -818,7 +818,8 @@ final class IslandModel: ObservableObject {
 
     func jumpToNeediest() {
         guard let target = SessionEngine.jumpTarget(sessions) else { return toggle() }
-        if let i = pending.firstIndex(where: { $0.sessionKey == target.id && $0.kind != .external }) {
+        // Menu bar only has no notch to answer in: go to the terminal instead.
+        if Prefs.display != .menuBarOnly, let i = pending.firstIndex(where: { $0.sessionKey == target.id && $0.kind != .external }) {
             selectedRequestIndex = i
             return expand(.click)
         }
