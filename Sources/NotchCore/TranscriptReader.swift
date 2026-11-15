@@ -12,6 +12,9 @@ public struct TranscriptInfo: Equatable, Sendable {
     /// Reasoning text, only when it is the newest thing in the transcript (no reply,
     /// tool call or tool result after it yet). Often empty: thinking can be redacted.
     public var latestThinking: String?
+    /// When the user pressed Esc, if that is the newest thing in the transcript. No Stop hook
+    /// comes for an interrupted turn.
+    public var interruptedAt: Date?
 
     public init() {}
 }
@@ -59,6 +62,9 @@ public enum TranscriptReader {
                 {
                     info.latestThinking = text
                 }
+                if obj["type"]?.string == "user", isClaudeInterrupt(obj["message"]?["content"]) {
+                    info.interruptedAt = obj["timestamp"]?.string.flatMap(UsageScanner.parseDate)
+                }
             }
             guard obj["type"]?.string == "assistant", obj["isSidechain"]?.bool != true,
                 let message = obj["message"]
@@ -87,6 +93,12 @@ public enum TranscriptReader {
         return info
     }
 
+    /// Claude writes "[Request interrupted by user]" (or "… for tool use") as a user message.
+    private static func isClaudeInterrupt(_ content: JSONValue?) -> Bool {
+        let texts = content?.array?.compactMap { $0["type"]?.string == "text" ? $0["text"]?.string : nil } ?? content?.string.map { [$0] } ?? []
+        return texts.contains { $0.hasPrefix("[Request interrupted by user") }
+    }
+
     static func claudeContextLimit(model: String?, used: Int) -> Int {
         if let model, model.contains("[1m]") { return 1_000_000 }
         return used > 200_000 ? 1_000_000 : 200_000
@@ -97,6 +109,10 @@ public enum TranscriptReader {
         var newestSeen = false
         for line in lines.reversed() {
             guard let obj = try? JSONValue.decode(Data(line.utf8)), let payload = obj["payload"] else { continue }
+            if !newestSeen, obj["type"]?.string == "event_msg", payload["type"]?.string == "turn_aborted" {
+                newestSeen = true
+                info.interruptedAt = obj["timestamp"]?.string.flatMap(UsageScanner.parseDate)
+            }
             if !newestSeen { newestSeen = codexNewestThinking(type: obj["type"]?.string, payload: payload, into: &info) }
             switch (obj["type"]?.string, payload["type"]?.string) {
             case ("event_msg", "token_count"):

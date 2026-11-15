@@ -510,3 +510,48 @@ final class Locked<T>: @unchecked Sendable {
     var value: T { lock.withLock { _value } }
     func mutate(_ f: (inout T) -> Void) { lock.withLock { f(&_value) } }
 }
+
+@Suite struct InterruptTests {
+    // Trimmed from real transcripts.
+    let claudeInterrupt =
+        #"{"isSidechain":false,"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]},"timestamp":"2026-11-08T01:12:41.907Z"}"#
+    let codexAborted =
+        #"{"timestamp":"2026-09-10T11:44:04.068Z","type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}"#
+    let prompt = #"{"isSidechain":false,"type":"user","message":{"role":"user","content":"Try again"},"timestamp":"2026-11-08T01:13:00.000Z"}"#
+
+    @Test func transcriptsMarkAnInterruptOnlyWhenNewest() {
+        #expect(TranscriptReader.parseClaude([claudeInterrupt]).interruptedAt == UsageScanner.parseDate("2026-11-08T01:12:41.907Z"))
+        #expect(TranscriptReader.parseClaude([claudeInterrupt, prompt]).interruptedAt == nil)
+        #expect(TranscriptReader.parseCodex([codexAborted]).interruptedAt == UsageScanner.parseDate("2026-09-10T11:44:04.068Z"))
+        let reply = #"{"type":"event_msg","payload":{"type":"agent_message","message":"Done"}}"#
+        #expect(TranscriptReader.parseCodex([codexAborted, reply]).interruptedAt == nil)
+    }
+
+    @Test func escInTheTerminalSettlesAThinkingSession() {
+        var engine = SessionEngine()
+        let start = Date()
+        _ = engine.handle(envelope("UserPromptSubmit", extra: ["prompt": "Fix it"]), now: start)
+        _ = engine.handle(envelope("PostToolUse", extra: ["tool_name": "Read"]), now: start.addingTimeInterval(1))
+        let key = engine.sessions.keys.first!
+        #expect(engine.sessions[key]?.phase == .thinking)
+
+        // An interrupt from before the last hook belongs to an earlier turn.
+        var info = TranscriptInfo()
+        info.interruptedAt = start
+        engine.apply(info, to: key)
+        #expect(engine.sessions[key]?.phase == .thinking)
+
+        info.interruptedAt = start.addingTimeInterval(5)
+        engine.apply(info, to: key)
+        #expect(engine.sessions[key]?.phase == .waitingInput)
+    }
+
+    @Test func manualCompactReturnsToReady() {
+        var engine = SessionEngine()
+        _ = engine.handle(envelope("PreCompact", extra: ["trigger": "manual"]))
+        _ = engine.handle(envelope("PostCompact", extra: ["trigger": "manual"]))
+        #expect(engine.sessions.values.first?.phase == .ready)
+        _ = engine.handle(envelope("PostCompact", extra: ["trigger": "auto"]))
+        #expect(engine.sessions.values.first?.phase == .thinking)
+    }
+}

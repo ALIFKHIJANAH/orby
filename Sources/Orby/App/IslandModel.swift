@@ -106,11 +106,12 @@ final class IslandModel: ObservableObject {
                 self?.updateLaunchHotKey()
             }
         updateLaunchHotKey()
-        // No hooks fire while the model reasons, so poll the transcript for its thoughts.
+        // No hooks fire while the model reasons, so poll the transcript for its thoughts, and for
+        // an Esc in the terminal, which ends the turn without a Stop hook.
         thinkingTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                for s in self.sessions where s.phase == .thinking { self.refreshTranscript(s.id, force: true) }
+                for s in self.sessions where s.phase.group == .working { self.refreshTranscript(s.id, force: true) }
             }
         }
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
