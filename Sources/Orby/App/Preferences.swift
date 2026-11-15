@@ -40,6 +40,9 @@ enum PrefKey {
     static let antigravityStatusLine = "antigravityStatusLine"
     /// Run `agy -p "/usage"` every few minutes (agy then asks Google with the user's login).
     static let antigravityUsageEnabled = "antigravityUsageEnabled"
+    /// Block Copilot CLI's permission hook until the notch answers. Off by default: the hook
+    /// fires before Copilot's own rules, so it also asks about calls Copilot would auto-allow.
+    static let copilotApprovals = "copilotApprovals"
     /// Minutes a trusted session auto-allows safe requests.
     static let trustMinutes = "trustMinutes"
     /// Replay a request's cue once after this many minutes unanswered; 0 = off.
@@ -142,6 +145,7 @@ enum Prefs {
             PrefKey.antigravityAnswerFromNotch: true,
             PrefKey.antigravityStatusLine: false,
             PrefKey.antigravityUsageEnabled: false,
+            PrefKey.copilotApprovals: false,
             PrefKey.trustMinutes: 30.0,
             PrefKey.reminderMinutes: 0.0,
             PrefKey.muteWhenLocked: true,

@@ -59,6 +59,16 @@ public enum ToolDescriber {
         case "list_dir": return Activity("Listing \(file("DirectoryPath"))", detail: path("DirectoryPath").map(abbreviate))
         case "read_url_content": return fetch("Url")
         case "search_web": return Activity("Searching the web for \(quoted("query"))")
+        // Gemini CLI
+        case "list_directory": return Activity("Listing \(file("dir_path"))", detail: path("dir_path").map(abbreviate))
+        case "read_many_files": return Activity("Reading several files")
+        case "write_todos": return Activity("Updating the to-do list")
+        case "save_memory": return Activity("Saving a memory")
+        // Copilot CLI
+        case "report_intent":
+            let intent = input["intent"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return Activity(intent.isEmpty ? "Planning the next step" : PlainText.truncate(intent, max: 90))
+        case "store_memory": return Activity("Saving a memory")
         default:
             if tool.hasPrefix("mcp__") { return mcpActivity(tool) }
             return Activity("Using \(words(tool))")

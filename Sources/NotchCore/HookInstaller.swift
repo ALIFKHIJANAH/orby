@@ -5,7 +5,7 @@ import NotchShared
 /// other tool's hooks untouched. Writes a timestamped backup before any change.
 /// Agents without JSON hooks (OpenCode, Pi) get a plugin file instead; Command Code gets both.
 public enum HookTarget: String, CaseIterable, Sendable {
-    case claude, codex, antigravity, opencode, pi, commandcode, qwen, droid, kimi
+    case claude, codex, antigravity, opencode, pi, commandcode, qwen, droid, kimi, gemini, copilot
 
     public var agent: AgentKind {
         switch self {
@@ -18,6 +18,8 @@ public enum HookTarget: String, CaseIterable, Sendable {
         case .qwen: .qwen
         case .droid: .droid
         case .kimi: .kimi
+        case .gemini: .gemini
+        case .copilot: .copilot
         }
     }
 
@@ -60,6 +62,14 @@ public enum HookTarget: String, CaseIterable, Sendable {
                 home == NotchPaths.homeDirectory
                 ? ProcessInfo.processInfo.environment["KIMI_CODE_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } : nil
             return (dir ?? home.appendingPathComponent(".kimi-code")).appendingPathComponent("config.toml")
+        case .gemini:
+            // JSON with comments; edited in place by `JSONC`.
+            return home.appendingPathComponent(".gemini/settings.json")
+        case .copilot:
+            // Copilot reads every *.json in its hooks folder, so Orby owns a file of its own.
+            let env = ProcessInfo.processInfo.environment["COPILOT_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            let dir = env.flatMap { home == NotchPaths.homeDirectory ? URL(fileURLWithPath: $0) : nil } ?? home.appendingPathComponent(".copilot")
+            return dir.appendingPathComponent("hooks/orby.json")
         }
     }
 
@@ -80,7 +90,7 @@ public enum HookTarget: String, CaseIterable, Sendable {
             return agentDir.appendingPathComponent("extensions/orby.ts")
         case .commandcode:
             return home.appendingPathComponent(".commandcode/mods/orby.ts")
-        case .claude, .codex, .antigravity, .qwen, .droid, .kimi:
+        case .claude, .codex, .antigravity, .qwen, .droid, .kimi, .gemini, .copilot:
             return nil
         }
     }
@@ -99,6 +109,12 @@ public enum HookTarget: String, CaseIterable, Sendable {
             ]
         case .pi:
             [pluginURL(home: home)!.deletingLastPathComponent().deletingLastPathComponent()]
+        case .gemini:
+            // ~/.gemini alone also exists for Antigravity; Gemini CLI keeps its chats in tmp/.
+            [home.appendingPathComponent(".gemini/tmp")]
+                + (home == NotchPaths.homeDirectory ? ["/opt/homebrew/bin/gemini", "/usr/local/bin/gemini"].map(URL.init(fileURLWithPath:)) : [])
+        case .copilot:
+            [configURL(home: home).deletingLastPathComponent().deletingLastPathComponent()]
         }
     }
 
@@ -141,6 +157,16 @@ public enum HookTarget: String, CaseIterable, Sendable {
             ]
         case .opencode, .pi:
             []
+        case .gemini:
+            // Gemini's own names; `GeminiPayload` maps them. BeforeModel/AfterModel fire per chunk.
+            ["SessionStart", "SessionEnd", "BeforeAgent", "BeforeTool", "AfterTool", "AfterAgent", "Notification"]
+        case .copilot:
+            // PascalCase keys get Claude-shaped input. PermissionRequest only blocks when the
+            // Copilot approvals setting is on; otherwise Orby answers "no opinion" at once.
+            [
+                "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
+                "PermissionRequest", "Notification", "Stop", "ErrorOccurred",
+            ]
         }
     }
 
@@ -170,6 +196,10 @@ public enum HookInstaller {
     /// Guarded so a missing bridge (app deleted) is a silent no-op instead of a hook error.
     public static func command(for target: HookTarget, event: String) -> String {
         let bridge = "$HOME/.orby/bin/orby-bridge"
+        if target == .copilot {
+            // Copilot's permission hook input doesn't name its event.
+            return "[ -x \"\(bridge)\" ] && exec \"\(bridge)\" --source copilot --event \(event) || true"
+        }
         guard target == .antigravity else {
             return "[ -x \"\(bridge)\" ] && exec \"\(bridge)\" --source \(target.rawValue) || true"
         }
@@ -195,7 +225,7 @@ public enum HookInstaller {
 
     public static func hasLegacy(_ target: HookTarget, home: URL = NotchPaths.homeDirectory) -> Bool {
         let url = target.configURL(home: home)
-        guard target.hasHookConfig, let data = try? Data(contentsOf: url), let root = try? JSONValue.decode(data) else { return false }
+        guard target.hasHookConfig, let data = try? Data(contentsOf: url), let root = try? parse(data, of: target) else { return false }
         return hasLegacy(in: wrapped(root, target, url))
     }
 
@@ -205,7 +235,11 @@ public enum HookInstaller {
     }
 
     private static func handler(_ target: HookTarget, _ event: String) -> JSONValue {
-        ["type": "command", "command": .string(command(for: target, event: event)), "timeout": .number(Double(target.timeout(for: event)))]
+        if target == .gemini {
+            // Gemini's timeouts are in milliseconds and its hooks carry a name.
+            return ["name": "orby", "type": "command", "command": .string(command(for: target, event: event)), "timeout": 5000]
+        }
+        return ["type": "command", "command": .string(command(for: target, event: event)), "timeout": .number(Double(target.timeout(for: event)))]
     }
 
     public static func installing(_ target: HookTarget, into root: JSONValue) -> JSONValue {
@@ -223,10 +257,13 @@ public enum HookInstaller {
         var hooks = root["hooks"]?.object ?? [:]
         for event in target.events {
             var groups = hooks[event]?.array ?? []
-            groups.append(["hooks": [handler(target, event)]])
+            groups.append(
+                target == .gemini && event.hasSuffix("Tool")
+                    ? ["matcher": "*", "hooks": [handler(target, event)]] : ["hooks": [handler(target, event)]])
             hooks[event] = .array(groups)
         }
         root["hooks"] = .object(hooks)
+        if target == .copilot { root["version"] = 1 }
         return .object(root)
     }
 
@@ -297,7 +334,7 @@ public enum HookInstaller {
     }
 
     public static func foreignBlockingHooks(_ target: HookTarget, home: URL = NotchPaths.homeDirectory) -> [String] {
-        guard let data = try? Data(contentsOf: target.configURL(home: home)), let root = try? JSONValue.decode(data) else { return [] }
+        guard let data = try? Data(contentsOf: target.configURL(home: home)), let root = try? parse(data, of: target) else { return [] }
         return foreignBlockingHooks(in: root)
     }
 
@@ -338,7 +375,7 @@ public enum HookInstaller {
     /// Installed, not installed, partial or unreadable, for one hook config file.
     static func hookStatus(_ target: HookTarget, at url: URL) -> Status {
         guard let data = try? Data(contentsOf: url) else { return .notInstalled }
-        guard let parsed = try? JSONValue.decode(data) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
+        guard let parsed = try? parse(data, of: target) else { return .unreadable("\(url.lastPathComponent) is not valid JSON") }
         let root = wrapped(parsed, target, url)
         return isInstalled(target, in: root) ? .installed : ourEvents(target, in: root).isEmpty ? .notInstalled : .partial
     }
@@ -347,11 +384,15 @@ public enum HookInstaller {
         case invalidJSON(URL)
         case foreignPlugin(URL)
         case uneditableTOML(URL, TOMLHookBlock.EditError)
+        /// A JSONC file whose `hooks` holds comments: rewriting it would lose them.
+        case commentedHooks(URL)
         public var errorDescription: String? {
             switch self {
             case .invalidJSON(let url): "\(url.path) isn’t valid JSON, so it was left untouched."
             case .foreignPlugin(let url): "\(url.path) wasn’t written by Orby, so it was left untouched."
             case .uneditableTOML(let url, let why): "\(url.path): \(why.localizedDescription), so it was left untouched."
+            case .commentedHooks(let url):
+                "\(url.path) has comments inside \"hooks\" that Orby would lose, so it was left untouched. Move or remove those comments, then try again."
             }
         }
     }
@@ -386,6 +427,11 @@ public enum HookInstaller {
         return b
     }
 
+    /// Gemini's settings allow comments and trailing commas; every other config is plain JSON.
+    static func parse(_ data: Data, of target: HookTarget) throws -> JSONValue {
+        target == .gemini ? try JSONC.parse(data) : try JSONValue.decode(data)
+    }
+
     private static func applyHooks(_ target: HookTarget, install: Bool, home: URL, backupDir: URL, now: Date) throws -> URL? {
         if target == .kimi { return try applyTOMLHooks(target, install: install, home: home, backupDir: backupDir, now: now) }
         return try applyHooks(target, install: install, at: target.configURL(home: home), backupName: nil, backupDir: backupDir, now: now)
@@ -397,8 +443,9 @@ public enum HookInstaller {
         let url = configURL.resolvingSymlinksInPath()
         var root: JSONValue = .object([:])
         var saved: URL?
-        if let data = try? Data(contentsOf: url) {
-            guard let parsed = try? JSONValue.decode(data) else { throw InstallError.invalidJSON(url) }
+        let original = try? Data(contentsOf: url)
+        if let data = original {
+            guard let parsed = try? parse(data, of: target) else { throw InstallError.invalidJSON(url) }
             root = wrapped(parsed, target, url)
             saved = try backup(data, of: url, for: target, in: backupDir, now: now, name: backupName)
         } else if !install {
@@ -409,7 +456,26 @@ public enum HookInstaller {
         var updated = install ? installing(target, into: root) : uninstalling(from: root)
         if target.hooksAtRoot(url) { updated = updated["hooks"] ?? .object([:]) }
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try updated.encoded(pretty: true).write(to: url, options: .atomic)
+        switch target {
+        case .gemini:
+            // Only the "hooks" member is rewritten, so the user's comments and layout survive.
+            var hooks = updated["hooks"]
+            if !install, hooks?.object?.isEmpty == true { hooks = nil }
+            let text: String
+            do {
+                text = try JSONC.setting("hooks", to: hooks, in: original.map { String(decoding: $0, as: UTF8.self) } ?? "")
+            } catch JSONC.EditError.commentsInside {
+                throw InstallError.commentedHooks(url)
+            } catch {
+                throw InstallError.invalidJSON(url)
+            }
+            try Data(text.utf8).write(to: url, options: .atomic)
+        case .copilot where !install && (updated["hooks"]?.object ?? [:]).isEmpty:
+            // Orby's own file: nothing left in it.
+            try fm.removeItem(at: url)
+        default:
+            try updated.encoded(pretty: true).write(to: url, options: .atomic)
+        }
         return saved
     }
 

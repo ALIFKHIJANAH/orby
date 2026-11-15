@@ -30,6 +30,9 @@ public struct SessionEngine: Sendable {
         public var startedSubagent: String?
     }
 
+    /// Answer Copilot CLI's permission hook from the notch (a setting, off by default).
+    public var copilotApprovals = false
+
     public init() {}
 
     public static func sessionKey(source: String, sessionID: String) -> String { "\(source):\(sessionID)" }
@@ -45,6 +48,8 @@ public struct SessionEngine: Sendable {
             case .claude, .codex, .unknown: env.payload
             case .opencode, .pi, .commandcode, .qwen, .droid, .kimi: ToolAliases.normalized(env.payload)
             case .cursor: CursorPayload.normalized(env.payload)
+            case .gemini: GeminiPayload.normalized(env.payload)
+            case .copilot: CopilotPayload.normalized(env.payload, approvals: copilotApprovals)
             }
         let key = Self.sessionKey(source: agent.rawValue, sessionID: sid)
         out.sessionKey = key
@@ -119,7 +124,9 @@ public struct SessionEngine: Sendable {
             let tool = p["tool_name"]?.string
             let input = p["tool_input"]
             out.cancelledRequests = cancelPending {
-                $0.sessionKey == key && $0.toolName == tool && (input == nil || $0.toolInput == input)
+                $0.sessionKey == key && $0.toolName == tool
+                    // A prompt seen only as a notification may describe the call more loosely.
+                    && (input == nil || $0.toolInput == input || ($0.kind == .external && $0.step == nil))
             }
             if !scope.isEmpty {
                 touchSubagent(scope, p, in: &s, now: now, out: &out) { $0.activity = nil }
@@ -197,6 +204,7 @@ public struct SessionEngine: Sendable {
                 // Agent is asking in the terminal (e.g. we weren't running when it started).
                 s.phase = .needsApproval
                 s.attention = p["message"]?.string.map { PlainText.summary($0, max: 120) } ?? s.attention
+                if agent.promptsInTerminalOnly { addTerminalPrompt(id: env.id, p, to: &s, now: now) }
                 out.cue = .approval
                 out.reveal = .attention(key)
             case "idle_prompt":
@@ -364,6 +372,26 @@ public struct SessionEngine: Sendable {
         out.sessionKey = s.id
         out.cue = .approval
         out.reveal = .attention(s.id)
+    }
+
+    // MARK: Terminal-only prompts (Gemini CLI, Copilot CLI)
+
+    /// The agent told a notification hook it is asking in its terminal. The prompt is about the
+    /// last tool call seen, unless the notification names a different one.
+    private mutating func addTerminalPrompt(id: String, _ p: JSONValue, to s: inout AgentSession, now: Date) {
+        let named = p["tool_name"]?.string
+        let hint = p["tool_input"]?.object ?? [:]
+        let last = s.lastToolInput?.object ?? [:]
+        let useLast = s.lastToolName != nil && (named == nil || (named == s.lastToolName && hint.allSatisfy { last[$0.key] == $0.value }))
+        let tool = useLast ? s.lastToolName! : named ?? "Tool"
+        let input = useLast ? s.lastToolInput ?? .object([:]) : p["tool_input"] ?? .object([:])
+        let request = PendingRequest(
+            id: id, sessionKey: s.id, kind: .external, toolName: tool, toolInput: input,
+            summary: ToolDescriber.describe(tool: tool, input: input), suggestions: [], receivedAt: now)
+        pending.insert(request, at: 0)
+        let activity = ToolDescriber.activity(tool: tool, input: input)
+        s.activity = activity
+        s.attention = "Wants to \(activity.intent)"
     }
 
     public func hasPending(_ sessionKey: String) -> Bool { pending.contains { $0.sessionKey == sessionKey } }

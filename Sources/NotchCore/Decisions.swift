@@ -24,6 +24,17 @@ public enum PermissionDecision: Sendable, Equatable {
         return ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]]
     }
 
+    /// The same decision in the agent's own reply format. Copilot CLI reads a flat
+    /// `{behavior, message, interrupt}` and ignores Claude's `hookSpecificOutput` wrapper.
+    public func hookOutput(for agent: AgentKind) -> JSONValue? {
+        guard agent == .copilot else { return hookOutput() }
+        switch self {
+        case .passthrough: return nil
+        case .allow: return ["behavior": "allow"]
+        case .deny(let message, let interrupt): return ["behavior": "deny", "message": .string(message), "interrupt": .bool(interrupt)]
+        }
+    }
+
     /// AskUserQuestion is answered by allowing the tool with `answers` merged into its input.
     /// Multi-select answers are joined with ", " (the format Claude Code itself produces).
     public static func answering(_ request: PendingRequest, answers: [String: [String]]) -> PermissionDecision {

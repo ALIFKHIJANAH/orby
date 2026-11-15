@@ -152,6 +152,7 @@ final class IslandModel: ObservableObject {
         }
         let before = Set(engine.pending.map(\.id))
         let known = Set(engine.sessions.keys)
+        engine.copilotApprovals = Prefs.bool(PrefKey.copilotApprovals)
         var outcome = engine.handle(envelope)
         logNewExternalPrompts(since: before)
 
@@ -614,7 +615,8 @@ final class IslandModel: ObservableObject {
         RequestLog.write(
             connection == nil ? "decided-no-bridge(\(RequestLog.label(decision)))" : "decided(\(RequestLog.label(decision)))",
             id: request.id, session: request.sessionKey, tool: request.toolName)
-        connection?.reply(BridgeReply(stdout: decision.hookOutput()))
+        let agent = engine.sessions[request.sessionKey]?.agent ?? .claude
+        connection?.reply(BridgeReply(stdout: decision.hookOutput(for: agent)))
         publish()
         collapseIfIdle()
     }

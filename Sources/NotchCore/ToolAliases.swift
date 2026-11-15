@@ -22,6 +22,8 @@ public enum ToolAliases {
         "Execute": "Bash", "Create": "Write", "ApplyPatch": "apply_patch", "FetchUrl": "WebFetch", "AskUser": "AskUserQuestion",
         // Kimi Code
         "FetchURL": "WebFetch", "TodoList": "TodoWrite",
+        // Gemini CLI and Copilot CLI
+        "search_file_content": "Grep", "view": "Read", "create": "Write",
     ]
 
     /// Claude's argument name → the names other agents use for it.
@@ -29,6 +31,8 @@ public enum ToolAliases {
         "file_path": ["filePath", "absolute_path", "path"],
         "old_string": ["oldString", "oldText", "old_str"],
         "new_string": ["newString", "newText", "new_str"],
+        // Copilot CLI's edit and create.
+        "content": ["file_text"],
     ]
 
     public static func claudeName(_ tool: String) -> String { names[tool] ?? tool }

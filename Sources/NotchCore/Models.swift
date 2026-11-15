@@ -2,7 +2,7 @@ import Foundation
 import NotchShared
 
 public enum AgentKind: String, Codable, CaseIterable, Sendable {
-    case claude, codex, antigravity, opencode, pi, commandcode, qwen, cursor, droid, kimi, unknown
+    case claude, codex, antigravity, opencode, pi, commandcode, qwen, cursor, droid, kimi, gemini, copilot, unknown
 
     public init(source: String) { self = AgentKind(rawValue: source) ?? .unknown }
 
@@ -24,6 +24,8 @@ public enum AgentKind: String, Codable, CaseIterable, Sendable {
         case .droid: "Factory Droid"
         case .kimi: "Kimi Code"
         case .unknown: "Agent"
+        case .gemini: "Gemini CLI"
+        case .copilot: "Copilot CLI"
         }
     }
 }

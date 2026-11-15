@@ -41,11 +41,13 @@ enum Theme {
         case .droid: Color(red: 0.95, green: 0.55, blue: 0.22)
         case .kimi: Color(red: 0.40, green: 0.76, blue: 0.98)
         case .unknown: Color.gray
+        case .gemini: Color(red: 0.30, green: 0.62, blue: 0.98)
+        case .copilot: Color(red: 0.80, green: 0.82, blue: 0.86)
         }
     }
 
     /// Light brand colors get dark eyes and glyphs.
-    static func isLight(_ agent: AgentKind) -> Bool { [.codex, .commandcode, .cursor].contains(agent) }
+    static func isLight(_ agent: AgentKind) -> Bool { [.codex, .commandcode, .cursor, .copilot].contains(agent) }
 
     static func symbol(for agent: AgentKind) -> String {
         switch agent {
@@ -60,6 +62,8 @@ enum Theme {
         case .droid: "gearshape.2"
         case .kimi: "moon.stars"
         case .unknown: "cpu"
+        case .gemini: "sparkles"
+        case .copilot: "eyeglasses"
         }
     }
 }
