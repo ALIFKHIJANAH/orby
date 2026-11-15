@@ -98,6 +98,7 @@ private struct GeneralSettings: View {
     @AppStorage(PrefKey.launchTerminal) private var launchTerminal = LaunchTerminal.preferred.rawValue
     @AppStorage(PrefKey.launchFolder) private var launchFolder = ""
     @AppStorage(PrefKey.newAgentShortcut) private var newAgentShortcut = true
+    @AppStorage(PrefKey.jumpShortcut) private var jumpShortcut = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -202,7 +203,8 @@ private struct GeneralSettings: View {
             LabeledContent("Allow request", value: "⌘Y")
             LabeledContent("Deny request", value: "⌘N")
             LabeledContent("New agent", value: newAgentShortcut ? "⌥⌘N" : "Off")
-            Text("Allow and deny work only while a permission request is open in the notch.").font(.caption).foregroundStyle(.secondary)
+            Toggle("⌃⌥J jumps to the session that needs you", isOn: $jumpShortcut)
+            Text("Allow and deny work only while a permission request is open in the notch. ⌃⌥J opens a request you can answer in the notch, otherwise it brings up the terminal of the session waiting longest, or the last one that finished.").font(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -428,6 +430,7 @@ private struct UsageSettings: View {
     let usage: UsageService?
     @AppStorage(PrefKey.claudeUsageEnabled) private var claudeEnabled = false
     @AppStorage(PrefKey.showUsageInHeader) private var showInHeader = true
+    @AppStorage(PrefKey.usageAlerts) private var usageAlerts = true
     @AppStorage(PrefKey.antigravityUsageEnabled) private var antigravityEnabled = false
 
     var body: some View {
@@ -456,6 +459,7 @@ private struct UsageSettings: View {
             LabeledContent("Token history", value: "Read from local transcripts and databases")
             Toggle("Show plan limits in the panel header", isOn: $showInHeader)
             if showInHeader, let usage { HeaderLimitPicker(usage: usage) }
+            Toggle("Notify me at 80% and 95% of a limit", isOn: $usageAlerts)
             Button("Refresh now") {
                 usage?.refreshLocal()
                 usage?.refreshClaudeIfEnabled()
@@ -514,9 +518,29 @@ private struct HeaderLimitPicker: View {
 }
 
 private struct AboutSettings: View {
+    @ObservedObject private var updates = UpdateService.shared
+    @AppStorage(PrefKey.checkForUpdates) private var checkForUpdates = true
+
     var body: some View {
         Section {
-            LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")
+            LabeledContent("Version", value: updates.currentVersion ?? "dev")
+            Toggle("Check for updates once a day", isOn: $checkForUpdates)
+            HStack {
+                if let release = updates.available {
+                    Link("Download Orby \(release.version)", destination: release.page)
+                } else if let status = updates.status {
+                    Text(status).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if updates.checking { ProgressView().controlSize(.small) }
+                Button("Check now") { updates.check() }.disabled(updates.checking)
+            }
+        } header: {
+            Text("Updates")
+        } footer: {
+            Text("Orby asks GitHub for its latest release. Nothing about you or your agents is sent. Orby isn't notarized, so it can't update itself: download the new DMG and drag it over the old app.")
+        }
+        Section {
             LabeledContent("Socket", value: NotchPaths.socket.path)
             Text("Orby shows your AI coding agents in the notch: live status, approvals, questions, plan review and jump-back. Everything stays on this Mac.")
                 .font(.callout)

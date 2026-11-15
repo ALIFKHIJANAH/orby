@@ -24,11 +24,16 @@ enum PrefKey {
     static let customSoundFolder = "customSoundFolder"
     static let claudeUsageEnabled = "claudeUsageEnabled"
     static let showUsageInHeader = "showUsageInHeader"
+    /// macOS notification when a plan limit crosses 80% or 95%.
+    static let usageAlerts = "usageAlerts"
     /// Header shows the limits the user picked instead of the two closest to running out.
     static let pickHeaderLimits = "pickHeaderLimits"
     /// Picked header limits, one `RateLimits.windowID` per line, in display order.
     static let headerLimits = "headerLimits"
     static let didOnboard = "didOnboard"
+    /// Ask GitHub once a day whether a newer release is out; when it last did.
+    static let checkForUpdates = "checkForUpdates"
+    static let lastUpdateCheck = "lastUpdateCheck"
     static let autoConfigureAgents = "autoConfigureAgents"
     static let antigravityAnswerFromNotch = "antigravityAnswerFromNotch"
     /// Relay agy's status line (plan quota) to Orby. Also lets auto-configure reinstall it.
@@ -52,6 +57,8 @@ enum PrefKey {
     static let recentFolders = "recentFolders"
     /// ⌥⌘N opens the new-agent launcher from any app.
     static let newAgentShortcut = "newAgentShortcut"
+    /// ⌃⌥J jumps to the session that needs you from any app. Off by default: it's a global key.
+    static let jumpShortcut = "jumpShortcut"
     static func soundEnabled(_ cue: SoundCue) -> String { "sound.\(cue.rawValue)" }
 }
 
@@ -99,9 +106,11 @@ enum Prefs {
             PrefKey.soundVolume: 0.5,
             PrefKey.claudeUsageEnabled: false,
             PrefKey.showUsageInHeader: true,
+            PrefKey.usageAlerts: true,
             PrefKey.pickHeaderLimits: false,
             PrefKey.headerLimits: "",
             PrefKey.didOnboard: false,
+            PrefKey.checkForUpdates: true,
             PrefKey.autoConfigureAgents: false,
             PrefKey.antigravityAnswerFromNotch: true,
             PrefKey.antigravityStatusLine: false,
@@ -115,6 +124,7 @@ enum Prefs {
             PrefKey.launchFolder: "",
             PrefKey.recentFolders: "",
             PrefKey.newAgentShortcut: true,
+            PrefKey.jumpShortcut: false,
         ]
         for cue in SoundCue.allCases { values[PrefKey.soundEnabled(cue)] = cue != .start }
         defaults.register(defaults: values)

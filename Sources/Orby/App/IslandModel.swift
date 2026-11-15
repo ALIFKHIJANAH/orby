@@ -104,8 +104,10 @@ final class IslandModel: ObservableObject {
             .sink { [weak self] _ in
                 self?.updateIdleTab()
                 self?.updateLaunchHotKey()
+                self?.updateJumpHotKey()
             }
         updateLaunchHotKey()
+        updateJumpHotKey()
         // No hooks fire while the model reasons, so poll the transcript for its thoughts, and for
         // an Esc in the terminal, which ends the turn without a Stop hook.
         thinkingTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
@@ -802,6 +804,25 @@ final class IslandModel: ObservableObject {
             guard let self else { return }
             if self.composing && self.isExpanded { self.cancelCompose(close: true) } else { self.startNewAgent() }
         }
+    }
+
+    /// ⌃⌥J, from any app: answer in the notch when the request can be answered there, else go to
+    /// the terminal of the session waiting longest (or the latest unread finished one).
+    private func updateJumpHotKey() {
+        let hk = HotKeyCenter.shared
+        guard Prefs.bool(PrefKey.jumpShortcut), !PreviewRenderer.active else { return hk.unregister(id: HotKeyID.jump) }
+        hk.register(id: HotKeyID.jump, keyCode: KeyCodes.j, modifiers: KeyCodes.control | KeyCodes.option) { [weak self] in
+            self?.jumpToNeediest()
+        }
+    }
+
+    func jumpToNeediest() {
+        guard let target = SessionEngine.jumpTarget(sessions) else { return toggle() }
+        if let i = pending.firstIndex(where: { $0.sessionKey == target.id && $0.kind != .external }) {
+            selectedRequestIndex = i
+            return expand(.click)
+        }
+        jump(to: target)
     }
 
     private func updateHotKeys() {

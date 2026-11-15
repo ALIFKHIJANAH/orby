@@ -15,6 +15,15 @@ public struct UsageWindow: Hashable, Sendable {
 
     /// Past its reset time: the usage it shows has been cleared since it was read.
     public func isStale(now: Date = Date()) -> Bool { resetsAt.map { $0 <= now } ?? false }
+
+    /// "in 2h 5m"-style time until `date`.
+    public static func relative(_ date: Date, now: Date = Date()) -> String {
+        let s = Int(date.timeIntervalSince(now))
+        if s <= 0 { return "now" }
+        if s < 3600 { return "in \(s / 60)m" }
+        if s < 86400 { return "in \(s / 3600)h \((s % 3600) / 60)m" }
+        return "in \(s / 86400)d \((s % 86400) / 3600)h"
+    }
 }
 
 /// One limit shown as a chip in the panel header.

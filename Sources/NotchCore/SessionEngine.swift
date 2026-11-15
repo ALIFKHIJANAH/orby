@@ -434,3 +434,12 @@ public struct SessionEngine: Sendable {
         }
     }
 }
+
+extension SessionEngine {
+    /// Where the "jump to what needs me" shortcut goes: the session waiting longest for you,
+    /// else the latest one that finished unread.
+    public static func jumpTarget(_ sessions: [AgentSession]) -> AgentSession? {
+        sessions.filter(\.phase.needsUser).min { $0.updatedAt < $1.updatedAt }
+            ?? sessions.filter { $0.unread && $0.phase.group == .finished }.max { $0.updatedAt < $1.updatedAt }
+    }
+}

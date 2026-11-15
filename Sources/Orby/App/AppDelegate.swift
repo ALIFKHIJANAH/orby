@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsWindowController.shared.sound = model.sound
         SettingsWindowController.shared.usage = model.usage
         model.start()
+        UpdateService.shared.start()
         // Antigravity reports permission prompts only in its CLI log.
         let watcher = AntigravityLogWatcher { event, logID in model.antigravityLog(event, logID: logID) }
         watcher.start()
@@ -102,6 +103,12 @@ extension AppDelegate: NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        if let release = UpdateService.shared.available {
+            let item = NSMenuItem(title: "Download Orby \(release.version)…", action: #selector(openUpdate), keyEquivalent: "")
+            item.target = self
+            item.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+            menu.addItem(item)
+        }
         menu.addItem(withTitle: "Show Island", action: #selector(toggleIsland), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
@@ -114,5 +121,8 @@ extension AppDelegate: NSMenuDelegate {
     }
 
     @objc private func toggleIsland() { model.toggle() }
+    @objc private func openUpdate() {
+        if let page = UpdateService.shared.available?.page { NSWorkspace.shared.open(page) }
+    }
     @objc private func openSettings() { SettingsWindowController.shared.show() }
 }

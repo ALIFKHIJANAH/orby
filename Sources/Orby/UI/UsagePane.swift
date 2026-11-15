@@ -86,13 +86,7 @@ private struct ProviderLimits: View {
         }
     }
 
-    static func relative(_ d: Date) -> String {
-        let s = Int(d.timeIntervalSinceNow)
-        if s <= 0 { return "now" }
-        if s < 3600 { return "in \(s / 60)m" }
-        if s < 86400 { return "in \(s / 3600)h \((s % 3600) / 60)m" }
-        return "in \(s / 86400)d \((s % 86400) / 3600)h"
-    }
+    static func relative(_ d: Date) -> String { UsageWindow.relative(d) }
 }
 
 private struct ProgressBar: View {

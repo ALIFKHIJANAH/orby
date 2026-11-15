@@ -8,7 +8,8 @@ without leaving what you're doing.
 
 Native Swift (AppKit + SwiftUI), ~2 MB, no accounts, nothing leaves your Mac except the
 optional Claude plan-limit request (and, if you turn it on, the quota check agy itself makes for
-`agy /usage`).
+`agy /usage`). Orby also asks GitHub once a day for its latest release version; it sends nothing
+about you or your agents, and you can turn it off in Settings → About.
 
 ![sessions](docs/screenshots/expanded-sessions.png)
 
